@@ -23,13 +23,14 @@
 
 
 #define GPMF_VERS_MAJOR	(1)
-#define GPMF_VERS_MINOR	(1)
+#define GPMF_VERS_MINOR	(2)
 #define GPMF_VERS_POINT	(0)
 
 #define GPMF_VERS	(GPMF_VERS_MAJOR<<0)|(GPMF_VERS_MINOR<<8)|(GPMF_VERS_POINT<<16)
 
 #include "threadlock.h"
 #include "GPMF_common.h"
+#include "GPMF_bitstream.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -77,6 +78,7 @@ typedef struct device_metadata
 	char complex_type[256]; // Maximum structure size for a sample is 255 bytes.
 	uint64_t microSecondTimeStamp[MAX_TIMESTAMPS+1];
 	uint64_t totalTimeStampCount;
+	uint32_t quantize;
 } device_metadata;
 
 #define GPMF_STICKY_PAYLOAD_SIZE			256	// can be increased if need

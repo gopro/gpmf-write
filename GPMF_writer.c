@@ -87,10 +87,11 @@ int32_t GPMFWriteTypeSize(int type)
 
 	case GPMF_TYPE_GUID:				ssize = 16; break;
 	case GPMF_TYPE_UTC_DATE_TIME:		ssize = 16; break;
-
-	case GPMF_TYPE_COMPLEX:				ssize = -1; break; // unsupported for structsize type
-	case GPMF_TYPE_NEST:				ssize = -1; break;  // unsupported for structsize type
-	default:								ssize = -1;  // unsupported for structsize type
+	
+	case GPMF_TYPE_COMPRESSED:			ssize = 1; break;  
+	case GPMF_TYPE_COMPLEX:				ssize = -1; break;	// unsupported for structsize type
+	case GPMF_TYPE_NEST:				ssize = -1; break;	// unsupported for structsize type
+	default:							ssize = -1;  		// unsupported for structsize type
 	}
 
 	return ssize;
@@ -291,15 +292,15 @@ size_t GPMFWriteStreamOpen(size_t ws_handle, uint32_t channel, uint32_t device_i
     if(device_id == GPMF_DEVICE_ID_PREFORMATTED) // use this stream to embed all external streams
     {
 		int i;	
-		uint32_t *buffer = &dm->payload_buffer[3];
+		uint32_t *extbuffer = &dm->payload_buffer[3];
 		uint32_t strm_buffer_long_size = ((dm->payload_alloc_size-12) / GPMF_EXT_PERFORMATTED_STREAMS) >> 2;
 		
 		ws->extrn_buffer_size[channel] = strm_buffer_long_size * 4; // bytes per extern stream buffer
 		
 		for(i=0; i<GPMF_EXT_PERFORMATTED_STREAMS; i++)
 		{
-			ws->extrn_buffer[channel][i] = buffer;
-			buffer += strm_buffer_long_size;
+			ws->extrn_buffer[channel][i] = extbuffer;
+			extbuffer += strm_buffer_long_size;
 		}
     }
 
@@ -660,10 +661,10 @@ again:
 tryagain:
 		while((tag != *payload_ptr || flags & GPMF_FLAGS_GROUPED) && *payload_ptr != GPMF_KEY_END) 
 		{
-			uint32_t typesize = *(payload_ptr+1);
-			uint32_t offset = 2 + ((GPMF_DATA_SIZE(typesize))>>2);
+			uint32_t tsize = *(payload_ptr+1);
+			uint32_t offset = 2 + ((GPMF_DATA_SIZE(tsize))>>2);
 
-			curr_byte_pos += 8 + ((GPMF_DATA_SIZE(typesize)));
+			curr_byte_pos += 8 + ((GPMF_DATA_SIZE(tsize)));
 			payload_ptr += offset, curr_pos += offset;
 		}
 		if (tag == *payload_ptr) // found existing metadata of the same tag to append
@@ -672,10 +673,10 @@ tryagain:
 			
 			if (GPMF_SAMPLE_TYPE(currtypesize) == GPMF_TYPE_NEST)
 			{
-				uint32_t typesize = *(payload_ptr + 1);
-				uint32_t offset = 2 + ((GPMF_DATA_SIZE(typesize)) >> 2);
+				uint32_t tsize = *(payload_ptr + 1);
+				uint32_t offset = 2 + ((GPMF_DATA_SIZE(tsize)) >> 2);
 
-				curr_byte_pos += 8 + ((GPMF_DATA_SIZE(typesize)));
+				curr_byte_pos += 8 + ((GPMF_DATA_SIZE(tsize)));
 				payload_ptr += offset, curr_pos += offset;
 				goto tryagain;
 			}
@@ -1293,7 +1294,13 @@ uint32_t GPMFWriteStreamStoreStamped(    //Send RAW data to be formatted for the
 		}
 
 		if(flags&GPMF_FLAGS_STICKY)
-		{
+		{	
+			if (tag == (uint32_t)STR2FOURCC("QUAN"))
+			{
+				dm->quantize = *((uint32_t *)data);
+				return GPMF_ERROR_OK;
+			}
+
 			if(dm->payload_sticky_curr_size+required_size > dm->payload_sticky_alloc_size) 
 				return GPMF_ERROR_MEMORY;
 		}
@@ -1362,7 +1369,7 @@ uint32_t GPMFWriteStreamStoreStamped(    //Send RAW data to be formatted for the
 					{
 						switch (endianSize)
 						{
-						case 2:		scratch_buf[len++] = BYTESWAP16(valptr[i]); break;
+						case 2:		scratch_buf[len++] = BYTESWAP2x16(valptr[i]); break;
 						case 4:		scratch_buf[len++] = BYTESWAP32(valptr[i]); break;
 						default:	scratch_buf[len++] = valptr[i]; break;
 						}
@@ -1407,8 +1414,8 @@ uint32_t GPMFWriteStreamStoreStamped(    //Send RAW data to be formatted for the
 									}
 									default:
 									{
-										int i;
-										for (i = 0; i < type_size; i++)
+										int ii;
+										for (ii = 0; ii < type_size; ii++)
 										{
 											*bsptr++ = *bvptr++;
 										}
@@ -1559,7 +1566,7 @@ uint32_t GPMFWriteStreamAperiodicEnd(size_t dm_handle, uint32_t tag)
 			1,
 			dm->payload_aperiodic_curr_size,
 			data,
-			GPMF_FLAGS_LOCKED | GPMF_FLAGS_BIG_ENDIAN | GPMF_FLAGS_DONT_COUNT);
+			(uint32_t)(GPMF_FLAGS_LOCKED | GPMF_FLAGS_BIG_ENDIAN | GPMF_FLAGS_DONT_COUNT));
 
 		// reset the CV Nest
 		dm->payload_aperiodic_curr_size = 0;
@@ -1791,12 +1798,352 @@ uint32_t GPMFWriteIsValidGPMF(uint32_t *buffer, uint32_t size, uint32_t recurse)
 }
 
 
+
+void GPMF_CompressedPutWord(BITSTREAM *stream, BITSTREAM_WORD_TYPE word)
+{
+	const int nWordsPerLong = sizeof(BITSTREAM_WORD_TYPE) / sizeof(uint8_t);
+	BITSTREAM_WORD_TYPE *lpCurrentWord = (BITSTREAM_WORD_TYPE *)(stream->lpCurrentWord);
+	int wordsUsed = stream->wordsUsed + nWordsPerLong;
+
+	// Check that there is room in the block for the int32_t word
+	assert(wordsUsed <= stream->dwBlockLength);
+	if (wordsUsed <= stream->dwBlockLength)
+	{
+		*(lpCurrentWord++) = BYTESWAP16(word);
+
+		stream->lpCurrentWord = (uint8_t *)lpCurrentWord;
+		stream->wordsUsed = wordsUsed;
+	}
+	else
+	{
+		stream->error = BITSTREAM_ERROR_OVERFLOW;
+	}
+}
+
+// Write bits to a compressed bitstream
+void GPMF_CompressedPutBits(BITSTREAM *stream, int wBits, int nBits)
+{
+	BITSTREAM_WORD_TYPE  wBuffer;
+	BITSTREAM_WORD_TYPE bitsFree;
+
+	// Move the current word into a int32_t buffer
+	wBuffer = stream->wBuffer;
+
+	// Number of bits remaining in the current word
+	bitsFree = stream->bitsFree;
+
+	// Will the bits fit in the int32_t buffer?
+	if (bitsFree == BITSTREAM_WORD_SIZE) {
+		wBuffer = wBits & BITMASK(nBits);
+		bitsFree -= (BITSTREAM_WORD_TYPE)nBits;
+	}
+	else if (nBits <= bitsFree) {
+		wBuffer <<= nBits;
+		wBuffer |= (wBits & BITMASK(nBits));
+		bitsFree -= (BITSTREAM_WORD_TYPE)nBits;
+	}
+	else {
+		// Fill the buffer with as many bits as will fit
+		wBuffer <<= bitsFree;
+		nBits -= bitsFree;
+
+		// Should have some bits remaining
+		assert(nBits > 0);
+
+		// Insert as many bits as will fit into the buffer
+		wBuffer |= (wBits >> nBits) & BITMASK(bitsFree);
+
+		// Insert all of the bytes in the buffer into the bitstream
+		GPMF_CompressedPutWord(stream, wBuffer);
+
+		wBuffer = wBits & BITMASK(nBits);
+		bitsFree = BITSTREAM_WORD_SIZE - (BITSTREAM_WORD_TYPE)nBits;
+	}
+
+	// Save the new current word and bit count in the stream
+	stream->wBuffer = wBuffer;
+	stream->bitsFree = bitsFree;
+}
+
+
+
+
+static void GPMF_CompressedFlushStream(BITSTREAM *stream)
+{
+	int bitsFree = stream->bitsFree;
+
+	// Does the buffer contain any data?
+	if (bitsFree < BITSTREAM_WORD_SIZE)
+	{
+		BITSTREAM_WORD_TYPE wBuffer = stream->wBuffer;
+
+		// Fill the rest of the buffer with zeros
+		wBuffer <<= bitsFree;
+
+		// Write the buffer to the output
+		GPMF_CompressedPutWord(stream, wBuffer);
+
+		// Indicate that the bitstream buffer is empty
+		stream->bitsFree = BITSTREAM_WORD_SIZE;
+		stream->wBuffer = 0;
+	}
+}
+
+
+BITSTREAM_WORD_TYPE GPMF_CompressedPutCode(BITSTREAM *stream, int code)
+{
+	BITSTREAM_WORD_TYPE numBits, bits;
+	numBits = enccontrolcodestable.entries[code].size;
+	bits = enccontrolcodestable.entries[code].bits;
+
+	GPMF_CompressedPutBits(stream, bits, numBits);
+
+	return numBits;
+}
+
+
+int GPMF_CompressedZeroRun(BITSTREAM *stream, int zeros)
+{
+	uint32_t totalBits = 0;
+	BITSTREAM_WORD_TYPE numBits = 0, bits;
+	int i = enczerorunstable.length - 1;
+
+	while (i >= 0 && zeros > 0)
+	{
+		if (enczerorunstable.entries[i].count > zeros)
+		{
+			i--;
+		}
+		else
+		{
+			numBits = enczerorunstable.entries[i].size;
+			bits = enczerorunstable.entries[i].bits;
+			zeros -= enczerorunstable.entries[i].count;
+
+			GPMF_CompressedPutBits(stream, bits, numBits);
+			totalBits += numBits;
+		}
+	}
+
+	// zeros have code '0'
+	GPMF_CompressedPutBits(stream, 0, zeros);
+	totalBits += zeros;
+
+	return totalBits;
+}
+
+int GPMF_CompressedPutValue(BITSTREAM *stream, int delta)
+{
+	BITSTREAM_WORD_TYPE numBits = 0, bits;
+	int mag = abs(delta);
+
+	if (mag < enchuftable.length)
+	{
+		numBits = enchuftable.entries[mag].size;
+		bits = enchuftable.entries[mag].bits;
+		if (mag) {
+			bits <<= 1;
+			if (delta < 0) bits |= 1; //add sign bit
+			numBits++; //sign bit.
+		}
+
+		GPMF_CompressedPutBits(stream, bits, numBits);
+	}
+	else
+	{
+		numBits += GPMF_CompressedPutCode(stream, HUFF_ESC_CODE_ENTRY);
+		GPMF_CompressedPutBits(stream, delta, stream->bits_per_src_word); numBits += stream->bits_per_src_word;
+	}
+
+	return numBits;
+}
+
+
+// Initialize the bitstream
+void GPMF_InitCompressedBitstream(BITSTREAM *stream, uint8_t *buffer, uint32_t bufferLength, uint32_t bits_per_src_word)
+{
+	// Initialize the block of words
+	stream->dwBlockLength = bufferLength;
+	stream->lpCurrentWord = buffer;
+	stream->wordsUsed = 0;
+
+	// Initialize the current bit buffer
+	stream->bitsFree = BITSTREAM_WORD_SIZE;
+	stream->wBuffer = 0;
+	stream->error = 0;
+	stream->bits_per_src_word = (uint16_t)bits_per_src_word;
+}
+
+
+#if HUFF_STATS
+uint32_t sourcesize = 0;
+uint32_t storedsize = 0;
+#endif
+
+uint32_t GPMFCompress(uint32_t* dst_gpmf, uint32_t *src_gpmf, uint32_t payloadAddition, uint32_t quantize)
+{
+	BITSTREAM bstream;
+	uint32_t returnpayloadsize = 0;
+	uint32_t typesizerepeat = src_gpmf[1];
+	uint8_t *bptr = (uint8_t *)src_gpmf;
+	uint8_t type = bptr[4];
+	//uint8_t size = bptr[5];
+	uint16_t repeat = (bptr[6] << 8) | bptr[7];
+	uint32_t quantHi = quantize;
+	uint32_t quantLo = quantize;
+
+	//[] = 32-bit, {} - 16-bit, unisgned or unsigned depending on the uncompressed type.
+	//[FOURCC]['#'sizerepeat][uncompressed typeSizeRepeat]{quantization}{first value}... delta encoded huffman ...
+
+	dst_gpmf[0] = src_gpmf[0];         returnpayloadsize += 4;
+	dst_gpmf[1] = 0;/*fill at end*/    returnpayloadsize += 4;
+	dst_gpmf[2] = typesizerepeat;      returnpayloadsize += 4;
+
+	int bytesize = GPMFWriteTypeSize(type);
+	int channels = GPMF_SAMPLE_SIZE(typesizerepeat) / bytesize;
+
+	switch (type)
+	{
+	case GPMF_TYPE_SIGNED_LONG:
+	case GPMF_TYPE_UNSIGNED_LONG:
+		channels *= 2, bytesize = 2; // treat LONGs as two channels of shorts
+		quantHi = 1;
+	case GPMF_TYPE_SIGNED_BYTE:
+	case GPMF_TYPE_UNSIGNED_BYTE:
+	case GPMF_TYPE_SIGNED_SHORT:
+	case GPMF_TYPE_UNSIGNED_SHORT:
+	{
+		uint32_t i;
+		int signed_type = 1; // not signed
+		int chn;
+		int8_t *dbyte = (int8_t *)&dst_gpmf[3];
+		uint8_t *dByte = (uint8_t *)dbyte;
+		//int16_t *dshort = (int16_t *)dbyte;
+		uint16_t *dShort = (uint16_t *)dbyte;
+		int8_t *sbyte = (int8_t *)&src_gpmf[2];
+		uint8_t *sByte = (uint8_t *)sbyte;
+		int16_t *sshort = (int16_t *)sbyte;
+		uint16_t *sShort = (uint16_t *)sbyte;
+		int pos = 0;
+
+		channels = GPMF_SAMPLE_SIZE(typesizerepeat) / bytesize;
+
+		if (type == GPMF_TYPE_SIGNED_SHORT || type == GPMF_TYPE_SIGNED_BYTE || type == GPMF_TYPE_SIGNED_LONG)
+			signed_type = -1; //signed
+
+		memcpy(dbyte, sbyte, bytesize*channels);  // store the first full sample as is.
+		pos += channels;
+		returnpayloadsize += bytesize*channels;
+
+		for (chn = 0; chn < channels; chn++)
+		{
+			uint32_t quant = quantHi, bufsize = payloadAddition - returnpayloadsize;
+			uint32_t totalbits = 0, zerorun = 0;
+
+			if (chn & 1) quant = quantLo; // Hack for encoding quantized 32-bit data with 16-bits.
+
+			if (bytesize == 2)
+			{
+				dShort[pos] = BYTESWAP16(quant); pos++,
+					GPMF_InitCompressedBitstream(&bstream, (uint8_t*)&dShort[pos], bufsize, bytesize * 8);
+			}
+			else
+			{
+				dByte[pos] = (uint8_t)quant; pos++;
+				pos = ((pos + 1) & ~1); //16-bit aligned compressed data
+				GPMF_InitCompressedBitstream(&bstream, &dByte[pos], bufsize, bytesize * 8);
+			}
+
+
+			returnpayloadsize += 4;
+
+			for (i = 1; i < repeat; i++)
+			{
+				int delta = 0;
+				switch (bytesize*signed_type)
+				{
+				default:
+				case -2: delta = ((int16_t)BYTESWAP16(sshort[i*channels + chn]) / (int16_t)quant) - ((int16_t)BYTESWAP16(sshort[(i - 1)*channels + chn]) / (int16_t)quant); break;
+				case -1: delta = ((int)(sbyte[i*channels + chn]) / (int)quant) - ((int)(sbyte[(i - 1)*channels + chn]) / (int)quant); break;
+				case 1: delta = ((int)(sByte[i*channels + chn]) / (int)quant) - ((int)(sByte[(i - 1)*channels + chn]) / (int)quant); break;
+				case 2: delta = ((int)BYTESWAP16(sShort[i*channels + chn]) / (int)quant) - ((int)BYTESWAP16(sShort[(i - 1)*channels + chn]) / (int)quant); break;
+				}
+
+				if (delta == 0) {
+					zerorun++;
+					continue;
+				}
+
+				if (zerorun)
+				{
+					totalbits += GPMF_CompressedZeroRun(&bstream, zerorun);
+					zerorun = 0;
+				}
+
+				totalbits += GPMF_CompressedPutValue(&bstream, delta);
+
+				//make sure compressed is not larger than uncompressed.
+				if (totalbits + 256 > bufsize * 8) // in bits
+				{
+					//too big, just store uncompresssed.
+					memcpy(dst_gpmf, src_gpmf, payloadAddition);
+#if HUFF_STATS
+					sourcesize += payloadAddition;
+					storedsize += payloadAddition;
+#endif
+					return payloadAddition;
+				}
+			}
+
+			totalbits += GPMF_CompressedPutCode(&bstream, HUFF_END_CODE_ENTRY);
+
+			GPMF_CompressedFlushStream(&bstream);
+
+			int bytesadded = ((totalbits + 7) / 8);
+			int lastsize = returnpayloadsize;
+			returnpayloadsize += bytesadded;
+			returnpayloadsize = ((returnpayloadsize + 1) & ~1); //16-bit aligned with a compressed channel
+			pos += ((returnpayloadsize - lastsize) >> (bytesize - 1));
+		}
+		break;
+	}
+	default: // do not compress other types of data
+		memcpy(dst_gpmf, src_gpmf, payloadAddition);
+		return payloadAddition;
+	}
+
+
+	returnpayloadsize = ((returnpayloadsize + 3) >> 2) << 2; //32-bit aligned channel
+
+	if (returnpayloadsize > payloadAddition) // double check
+	{
+		memcpy(dst_gpmf, src_gpmf, payloadAddition);
+		returnpayloadsize = payloadAddition;
+	}
+	else
+	{
+		uint32_t typesizerepeat_compressed;
+
+		typesizerepeat_compressed = GPMF_MAKE_TYPE_SIZE_COUNT('#', bytesize, (returnpayloadsize - 8) / bytesize);
+		dst_gpmf[1] = typesizerepeat_compressed;
+	}
+
+#if HUFF_STATS
+	sourcesize += payloadAddition;
+	storedsize += returnpayloadsize;
+#endif
+
+	return returnpayloadsize;
+}
+
+
+
 uint32_t GPMFWriteGetPayloadAndSession(size_t ws_handle, uint32_t channel, uint32_t *buffer, uint32_t buffer_size,
 								  uint32_t **payload, uint32_t *payloadsize,
 								  uint32_t **session, uint32_t *sessionsize, int session_reduction)
 {
 	uint32_t *newpayload = NULL;
-	uint32_t estimatesize = 0,i;
+	uint32_t estimatesize = 0,j;
 
 	device_metadata *dm, *dmnext;
 	GPMFWriterWorkspace *ws = (GPMFWriterWorkspace *)ws_handle;
@@ -1829,13 +2176,13 @@ uint32_t GPMFWriteGetPayloadAndSession(size_t ws_handle, uint32_t channel, uint3
 	
 	newpayload = (uint32_t *)buffer;
 
-	for(i=0; i<2; i++)
+	for(j=0; j<2; j++)
 	{
 		uint32_t totalsize = 0;
 		int freebuffers = 0;
 		uint32_t session_scale = 0;
 
-		switch (i)
+		switch (j)
 		{
 		case 0: // MP4 payload
 			if(payload == NULL)
@@ -1976,7 +2323,7 @@ uint32_t GPMFWriteGetPayloadAndSession(size_t ws_handle, uint32_t channel, uint3
 								buf[2] = BYTESWAP32(1);
 								buf[3] = GPMF_KEY_END;
 
-								AppendFormattedMetadata(dm, buf, 12, GPMF_FLAGS_STICKY_ACCUMULATE|GPMF_FLAGS_LOCKED, 1, 0); // Timing is Sticky, only one value per data stream, it is simpy updated if sent more than once.
+								AppendFormattedMetadata(dm, buf, 12, (uint32_t)GPMF_FLAGS_STICKY_ACCUMULATE|GPMF_FLAGS_LOCKED, 1, 0); // Timing is Sticky, only one value per data stream, it is simpy updated if sent more than once.
 							}
 						}						
 					} 
@@ -2085,8 +2432,12 @@ uint32_t GPMFWriteGetPayloadAndSession(size_t ws_handle, uint32_t channel, uint3
 #else
 							uint32_t payload_curr_size = dm->payload_curr_size;
 #endif
-							int payloadAddition = (payload_curr_size + 3)&~3;
-							memcpy(ptr, dm->payload_buffer, payloadAddition);						
+							int payloadAddition = (payload_curr_size + 3)&~3;	
+							
+							if (dm->quantize && payloadAddition > 100)
+								payloadAddition = GPMFCompress(ptr, dm->payload_buffer, payloadAddition, dm->quantize);
+							else
+								memcpy(ptr, dm->payload_buffer, payloadAddition);					
 							devicesizebytes += payloadAddition;
 							streamsizebytes += payloadAddition;
 							ptr += (payloadAddition >> 2);
@@ -2352,7 +2703,7 @@ uint32_t GPMFWriteGetPayloadAndSession(size_t ws_handle, uint32_t channel, uint3
 		}
 
 		
-		switch (i)
+		switch (j)
 		{
 		case 0: // MP4 payload
 			*payload = newpayload;

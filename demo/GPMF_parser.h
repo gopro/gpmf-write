@@ -42,6 +42,7 @@ typedef struct GPMF_stream
 	uint32_t device_count;
 	uint32_t device_id;
 	char device_name[32];
+	size_t cbhandle; // compression handler
 } GPMF_stream;
 
 
@@ -74,7 +75,7 @@ uint32_t GPMF_Repeat(GPMF_stream *gs);															//return the current repeat
 uint32_t GPMF_PayloadSampleCount(GPMF_stream *gs);														//return the current number of samples of this structure, supporting multisample entries.
 uint32_t GPMF_ElementsInStruct(GPMF_stream *gs);												//return the current number elements within the structure (e.g. 3-axis gyro)
 uint32_t GPMF_RawDataSize(GPMF_stream *gs);														//return the data size for the current GPMF KLV 
-void *   GPMF_RawData(GPMF_stream *gs);															//return a pointer the KLV data (which is Bigendian if the type is known.)
+void *   GPMF_RawData(GPMF_stream *gs);															//return a pointer the KLV data (which is Bigendian if the type is known, but as might be compressed, use GPMF_FormattedData or GPMF_ScaledData.)
 
 // Get information about where the GPMF KLV is nested
 uint32_t GPMF_NestLevel(GPMF_stream *gs);														//return the current nest level
@@ -88,12 +89,27 @@ uint32_t GPMF_SizeOfComplexTYPE(char *typearray, uint32_t typestringlength);				
 GPMF_ERR GPMF_Reserved(uint32_t key);															// Test for a reverse GPMF Key, returns GPMF_OK is not reversed.
 
 //Tools for extracting sensor data 
+uint32_t GPMF_FormattedDataSize(GPMF_stream *gs);												//return the decompressed data size for the current GPMF KLV
+uint32_t GPMF_ScaledDataSize(GPMF_stream *gs, GPMF_SampleType type);												//return the decompressed data size for the current GPMF KLV
 GPMF_ERR GPMF_FormattedData(GPMF_stream *gs, void *buffer, uint32_t buffersize, uint32_t sample_offset, uint32_t read_samples);  // extract 'n' samples into local endian memory format.
 GPMF_ERR GPMF_ScaledData(GPMF_stream *gs, void *buffer, uint32_t buffersize, uint32_t sample_offset, uint32_t read_samples, GPMF_SampleType type); // extract 'n' samples into local endian memory format										// return a point the KLV data.
 
+//Tools for Compressed datatypes
+
+typedef struct GPMF_codebook
+{
+	int16_t value;			//value to store
+	uint8_t offset;			//0 to 128+ bytes to skip before store (leading zeros)
+	uint8_t bits_used;		//1 to 16,32 (if escape code > 16 then read from bit-steam), 
+	int8_t bytes_stored;	//bytes stored in value: 0, 1 or 2
+	int8_t command;		//0 - OKAY,  -1 valid code, 1 - end
+} GPMF_codebook;
 
 
-
+GPMF_ERR GPMF_AllocCodebook(size_t *cbhandle);
+GPMF_ERR GPMF_FreeCodebook(size_t cbhandle);
+GPMF_ERR GPMF_DecompressedSize(GPMF_stream *gs, uint32_t *neededsize);
+GPMF_ERR GPMF_Decompress(GPMF_stream *gs, uint32_t *localbuf, uint32_t localbuf_size);
 
 
 #ifdef __cplusplus

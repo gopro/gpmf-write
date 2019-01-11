@@ -28,6 +28,8 @@
 #include "../GPMF_writer.h"
 #include "GPMF_parser.h"
 
+extern void PrintGPMF(GPMF_stream *);
+
 #if !_WINDOWS
 #define sprintf_s(a,b,c) sprintf(a,c)
 #endif
@@ -47,24 +49,26 @@ int main(int argc, char *argv[])
 {
 	size_t gpmfhandle = 0;
 	int32_t ret = GPMF_OK;
-	uint32_t *payload = NULL; //buffer to store GPMF samples from the MP4.
 
-	//if (argc != 2)
-	//{
-	//	printf("usage: %s <file_with_GPMF>\n", argv[0]);
-	//	return -1;
-	//}
-
-	if (gpmfhandle = GPMFWriteServiceInit())
+	if (argc != 1)
 	{
-		size_t handleA;
-		size_t handleB;
+		printf("usage: %s <file_with_GPMF>\n", argv[0]);
+		return -1;
+	}
+
+	gpmfhandle = GPMFWriteServiceInit();
+	if (gpmfhandle)
+	{
+		size_t handleA = 0;
+		size_t handleB = 0;
+		size_t handleC = 0;
 		char buffer[8192];
 		char sensorA[4096];
 		uint32_t *payload, payload_size, samples, i;
 		uint32_t tmp,faketime,fakedata;
 		float fdata[4];
 		uint32_t Ldata[4], count = 0;
+		uint16_t sdata[40] = { 0 }, signal = 0;
 		char txt[80];
 		uint32_t err;
 		sensorAdata Adata[4];
@@ -74,6 +78,9 @@ int main(int argc, char *argv[])
 
 		handleB = GPMFWriteStreamOpen(gpmfhandle, GPMF_CHANNEL_TIMED, GPMF_DEVICE_ID_CAMERA, "MyCamera", NULL, 0);
 		if (handleB == 0) goto cleanup;
+
+		handleC = GPMFWriteStreamOpen(gpmfhandle, GPMF_CHANNEL_TIMED, GPMF_DEVICE_ID_CAMERA, "MyCamera", NULL, 0);
+		if (handleC == 0) goto cleanup;
 
 		//Initialize sensor stream with any sticky data
 		sprintf_s(txt, 80, "Sensor A");
@@ -85,10 +92,16 @@ int main(int argc, char *argv[])
 		sprintf_s(txt, 80, "Sensor B");
 		GPMFWriteStreamStore(handleB, GPMF_KEY_STREAM_NAME, GPMF_TYPE_STRING_ASCII, strlen(txt), 1, &txt, GPMF_FLAGS_STICKY);
 		tmp = 555;
-		GPMFWriteStreamStore(handleB, GPMF_KEY_SCALE, GPMF_TYPE_UNSIGNED_LONG, sizeof(tmp), 1,  &tmp, GPMF_FLAGS_STICKY);
+		GPMFWriteStreamStore(handleB, GPMF_KEY_SCALE, GPMF_TYPE_UNSIGNED_LONG, sizeof(tmp), 1, &tmp, GPMF_FLAGS_STICKY);
 		fdata[0] = 123.456f; fdata[1] = 74.56f; fdata[2] = 98.76f;
 		GPMFWriteStreamStore(handleB, STR2FOURCC("MyCC"), GPMF_TYPE_FLOAT, sizeof(float), 3, fdata, GPMF_FLAGS_STICKY);
 
+
+		sprintf_s(txt, 80, "Sensor C - Compressed");
+		GPMFWriteStreamStore(handleC, GPMF_KEY_STREAM_NAME, GPMF_TYPE_STRING_ASCII, strlen(txt), 1, &txt, GPMF_FLAGS_STICKY);
+		tmp = 1; // quantize by a larger number for more compress, use 1 for lossless (but it may not compress much.)
+		GPMFWriteStreamStore(handleC, GPMF_KEY_QUANTIZE, GPMF_TYPE_UNSIGNED_LONG, sizeof(tmp), 1, &tmp, GPMF_FLAGS_STICKY);
+	
 
 		//Flush any stale data before starting video capture.
 		GPMFWriteGetPayload(gpmfhandle, GPMF_CHANNEL_TIMED, (uint32_t *)buffer, sizeof(buffer), &payload, &payload_size);
@@ -101,8 +114,8 @@ int main(int argc, char *argv[])
 				{
 					case 0: //pretend no data
 						break;
+
 					case 1: //pretend Sensor A data
-					case 2: //pretend Sensor A data
 						samples = 1 + (rand() % 3); //1-4 values
 						for (i = 0; i < samples; i++)
 						{
@@ -117,12 +130,19 @@ int main(int argc, char *argv[])
 						err = GPMFWriteStreamStore(handleA, STR2FOURCC("SnrA"), GPMF_TYPE_COMPLEX, sizeof(sensorAdata), samples, Adata, GPMF_FLAGS_NONE);
 						if (err) printf("err = %d\n", err);
 						break;
-					case 3: //pretend Sensor B data
+
+					case 2: //pretend Sensor B data
 						samples = 1 + (rand() % 3); //1-4 values
 						for (i = 0; i < samples; i++) Ldata[i] = (uint32_t)rand() & 0xffffff;
 						err = GPMFWriteStreamStore(handleB, STR2FOURCC("SnrB"), GPMF_TYPE_UNSIGNED_LONG, sizeof(uint32_t), samples, Ldata, GPMF_FLAGS_NONE);
 						if (err) printf("err = %d\n", err); 
 						break;
+
+					case 3: //pretend Sensor C data, high frequency, demoing compression
+						samples = 10 + (rand() % 30); //10-40 values
+						for (i = 0; i < samples; i++) { sdata[i] = signal + (uint16_t)(rand() & 0xf); signal++; } // signal and noise
+						err = GPMFWriteStreamStore(handleC, STR2FOURCC("SnrC"), GPMF_TYPE_UNSIGNED_SHORT, sizeof(uint16_t), samples, sdata, GPMF_FLAGS_NONE);
+						if (err) printf("err = %d\n", err);
 				}
 			}
 			GPMFWriteGetPayload(gpmfhandle, GPMF_CHANNEL_TIMED, (uint32_t *)buffer, sizeof(buffer), &payload, &payload_size);
@@ -136,7 +156,6 @@ int main(int argc, char *argv[])
 				GPMF_ResetState(&gs);
 				do
 				{ 
-					extern void PrintGPMF(GPMF_stream *);
 					PrintGPMF(&gs);  // printf current GPMF KLV
 				} while (GPMF_OK == GPMF_Next(&gs, GPMF_RECURSE_LEVELS));
 			}
@@ -145,9 +164,8 @@ int main(int argc, char *argv[])
 		}
 
 cleanup:
-		GPMFWriteStreamClose(handleA);
-		GPMFWriteStreamClose(handleB);
-	
+		if (handleA) GPMFWriteStreamClose(handleA);
+		if (handleB) GPMFWriteStreamClose(handleB);
 
 		GPMFWriteServiceClose(gpmfhandle);
 	}
