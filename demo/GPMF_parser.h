@@ -69,13 +69,13 @@ GPMF_ERR GPMF_SeekToSamples(GPMF_stream *gs);													//find the last FourCC
 
 // Get information about the current GPMF KLV
 uint32_t GPMF_Key(GPMF_stream *gs);																//return the current Key (FourCC)
-uint32_t GPMF_Type(GPMF_stream *gs);															//return the current Type (GPMF_Type)
+GPMF_SampleType GPMF_Type(GPMF_stream *gs);														//return the current Type (GPMF_Type)
 uint32_t GPMF_StructSize(GPMF_stream *gs);														//return the current sample structure size
 uint32_t GPMF_Repeat(GPMF_stream *gs);															//return the current repeat or the number of samples of this structure
 uint32_t GPMF_PayloadSampleCount(GPMF_stream *gs);														//return the current number of samples of this structure, supporting multisample entries.
 uint32_t GPMF_ElementsInStruct(GPMF_stream *gs);												//return the current number elements within the structure (e.g. 3-axis gyro)
 uint32_t GPMF_RawDataSize(GPMF_stream *gs);														//return the data size for the current GPMF KLV 
-void *   GPMF_RawData(GPMF_stream *gs);															//return a pointer the KLV data (which is Bigendian if the type is known, but as might be compressed, use GPMF_FormattedData or GPMF_ScaledData.)
+void *   GPMF_RawData(GPMF_stream *gs);															//return a pointer the KLV data (which is Bigendian if the type is known.)
 
 // Get information about where the GPMF KLV is nested
 uint32_t GPMF_NestLevel(GPMF_stream *gs);														//return the current nest level

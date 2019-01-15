@@ -63,9 +63,10 @@ typedef enum
 
 	GPMF_TYPE_COMPLEX = '?', //for sample with complex data structures, base size in bytes.  Data is either opaque, or the stream has a TYPE structure field for the sample.
 	GPMF_TYPE_COMPRESSED = '#', //Huffman compression STRM payloads.  4-CC <type><size><rpt> <data ...> is compressed as 4-CC '#'<new size/rpt> <type><size><rpt> <compressed data ...>
-	
+
 	GPMF_TYPE_NEST = 0, // used to nest more GPMF formatted metadata 
 
+	GPMF_TYPE_ERROR = 0xff // used to report an error
 } GPMF_SampleType;
 
 
