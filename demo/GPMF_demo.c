@@ -27,6 +27,7 @@
 #include "../GPMF_common.h"
 #include "../GPMF_writer.h"
 #include "GPMF_parser.h"
+#include "GPMF_mp4writer.h"
 
 extern void PrintGPMF(GPMF_stream *);
 
@@ -48,16 +49,19 @@ typedef struct sensorAdata  // Example 10-byte pack structure.
 int main(int argc, char *argv[])
 {
 	size_t gpmfhandle = 0;
+	size_t mp4_handle = 0;
 	int32_t ret = GPMF_OK;
 
-	if (argc != 1)
+	if (argc != 2)
 	{
-		printf("usage: %s <file_with_GPMF>\n", argv[0]);
+		printf("usage: %s <file_with_GPMF.MP4|MOV>\n", argv[0]);
 		return -1;
 	}
 
+	mp4_handle = OpenMP4Export(argv[1], 1001);
+
 	gpmfhandle = GPMFWriteServiceInit();
-	if (gpmfhandle)
+	if (gpmfhandle && mp4_handle)
 	{
 		size_t handleA = 0;
 		size_t handleB = 0;
@@ -149,6 +153,8 @@ int main(int argc, char *argv[])
 
 			printf("payload_size = %d\n", payload_size);
 
+			ExportPayload(mp4_handle, payload, payload_size);
+	
 			//Using the GPMF_Parser, output some of the contents
 			GPMF_stream gs;
 			if (GPMF_OK == GPMF_Init(&gs, payload, payload_size))
@@ -163,7 +169,9 @@ int main(int argc, char *argv[])
 
 		}
 
-cleanup:
+	cleanup:
+
+		if (mp4_handle) CloseExport(mp4_handle);
 		if (handleA) GPMFWriteStreamClose(handleA);
 		if (handleB) GPMFWriteStreamClose(handleB);
 
