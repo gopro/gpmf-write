@@ -58,7 +58,7 @@ int main(int argc, char *argv[])
 		return -1;
 	}
 
-	mp4_handle = OpenMP4Export(argv[1], 1001);
+	mp4_handle = OpenMP4Export(argv[1], 1000, 1001);
 
 	gpmfhandle = GPMFWriteServiceInit();
 	if (gpmfhandle && mp4_handle)

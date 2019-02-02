@@ -35,14 +35,14 @@ typedef struct mp4object
 	uint32_t *metasizes;
 	uint32_t metasize_alloc;
 	uint32_t metasize_count;
-	uint32_t time_base;
-	uint32_t duration;
+	uint32_t payload_duration;
+	uint32_t total_duration;
 	uint32_t totalsize;
 	FILE *mediafp;
 } mp4object;
 
 
-size_t OpenMP4Export(char *filename, uint32_t time_base);
+size_t OpenMP4Export(char *filename, uint32_t file_time_base, uint32_t payload_duration);
 
 uint32_t ExportPayload(size_t handle, uint32_t *payload, uint32_t payload_size);
 

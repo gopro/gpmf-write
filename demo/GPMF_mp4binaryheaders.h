@@ -92,9 +92,8 @@ uint32_t moov_byte_size_offsets[] =
 uint32_t moov_rate_offsets = 2;
 uint32_t moov_byte_rate_offsets[] =
 {
-	0x1c, 0xf4
+	0x1c, 0xf4,	0x21a
 };
-
 
 uint32_t moov_duration_offsets = 3;
 uint32_t moov_byte_duration_offsets[] =

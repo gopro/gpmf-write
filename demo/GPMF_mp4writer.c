@@ -34,7 +34,7 @@
 
 
 
-size_t OpenMP4Export(char *filename, uint32_t time_base)
+size_t OpenMP4Export(char *filename, uint32_t file_time_base, uint32_t payload_duration)
 {
 	mp4object *mp4 = (mp4object *)malloc(sizeof(mp4object));
 	if (mp4 == NULL) return 0;
@@ -51,13 +51,13 @@ size_t OpenMP4Export(char *filename, uint32_t time_base)
 	mp4->metasize_alloc = ALLOC_PAYLOADS;
 	if (mp4->mediafp && mp4->metasizes)
 	{
-		mp4->time_base = time_base;
+		mp4->payload_duration = payload_duration;
 
 		fwrite(hdr, 1, hdr_size, mp4->mediafp);
 		for (uint32_t i = 0; i < moov_rate_offsets; i++)
 		{
 			uint32_t *lptr = (uint32_t *)&moov[moov_byte_rate_offsets[i]];
-			*lptr = BYTESWAP32(time_base);
+			*lptr = BYTESWAP32(file_time_base);
 		}
 		for (uint32_t i = 0; i < moov_duration_offsets; i++)
 		{
@@ -98,7 +98,7 @@ uint32_t ExportPayload(size_t handle, uint32_t *payload, uint32_t payload_size)
 		}
 		mp4->metasizes[mp4->metasize_count] = BYTESWAP32(payload_size);
 		mp4->metasize_count++;
-		mp4->duration += mp4->time_base;
+		mp4->total_duration += mp4->payload_duration;
 		mp4->totalsize += payload_size;
 		
 		return (uint32_t)fwrite(payload, 1, payload_size, mp4->mediafp);
@@ -119,7 +119,7 @@ void CloseExport(size_t handle)
 		for (uint32_t i = 0; i < moov_duration_offsets; i++)
 		{
 			uint32_t *lptr = (uint32_t *)&moov[moov_byte_duration_offsets[i]];
-			*lptr = BYTESWAP32(mp4->duration);
+			*lptr = BYTESWAP32(mp4->total_duration);
 		}
 		for (uint32_t i = 0; i < moov_payload_count_offsets; i++)
 		{
