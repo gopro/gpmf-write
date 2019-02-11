@@ -144,10 +144,6 @@ THREAD_API(GetTick)(uint32_t *tick)
 
 #include "pthread.h"
 
-#if __APPLE__
-#include "macdefs.h"
-#endif
-
 // Macro for declaring routines in the threads API
 #define THREAD_API(proc) \
 	static inline THREAD_ERROR proc
