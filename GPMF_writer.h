@@ -49,7 +49,7 @@ typedef enum
 } MetadataChannel;
 
 
-#define MAX_TIMESTAMPS		16
+#define MAX_TIMESTAMPS		32
 #define LARGESTTIMESTAMP	0xffffffffffffffff
 
 #define FLOAT_PRECISION float
@@ -114,7 +114,7 @@ typedef struct device_metadata
 #define GPMF_FLAGS_DONT_COUNT			32 // Internal : Some CV extracted metadata may take computation time, this is an internal flag used by MetadataStreamAperiodic...().
 #define GPMF_FLAGS_SORTED				64 // Special case for non-sticky global data, data is presort by the quanity of the first field. 
 												// e.g. a machine vision confident value could autopriority the stored data (and trucate if storage is limited low priority data.) 
-#define GPMF_FLAGS_STORE_ALL_TIMESTAMPS	128	// Generally don't use this. This would be if you sensor is has no peroidic times, yet precision is required, or for debugging.  
+#define GPMF_FLAGS_STORE_ALL_TIMESTAMPS	128	// Generally don't use this. This would be if your sensor is has no peroidic times, yet precision is required, or for debugging.  
 #define GPMF_FLAGS_ADD_TICK				256	// Generally don't use this. This is for emulating old style GoPro metadata that used a Millisecond tick from the OS timer.							
 
 #define GPMF_FLAGS_LOCKED 				(1<<31) //Metadata Internal use only

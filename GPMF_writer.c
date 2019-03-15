@@ -597,13 +597,16 @@ void AppendFormattedMetadata(device_metadata *dm, uint32_t *formatted, uint32_t 
 		*ptr64 = BYTESWAP64(TimeStamp);		
 	//	TimeStamp = 0;  // with this commented out it will store both jitter removed and raw timestamps.
 
-		buf[0] = GPMF_KEY_TIME_STAMPS;
-		buf[1] = MAKEID('J', 8, 0, 1);
-		buf[2] = swap64timestamp[0];
-		buf[3] = swap64timestamp[1];
-		buf[4] = GPMF_KEY_END;
-		
-		AppendFormattedMetadata(dm, buf, 16, stampflags, 1, 0); // Timing is Sticky, only one value per data stream, it is simpy updated if sent more than once.	
+		for (uint32_t i = 0; i < sample_count; i++)
+		{
+			buf[0] = GPMF_KEY_TIME_STAMPS;
+			buf[1] = MAKEID('J', 8, 0, 1);
+			buf[2] = swap64timestamp[0];
+			buf[3] = swap64timestamp[1];
+			buf[4] = GPMF_KEY_END;
+
+			AppendFormattedMetadata(dm, buf, 16, stampflags, 1, 0); // Timing is Sticky, only one value per data stream, it is simpy updated if sent more than once.	
+		}
 	}
 	
 again:
