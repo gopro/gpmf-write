@@ -407,7 +407,7 @@ uint32_t GPMFWriteIsValidGPMF(uint32_t *buffer, uint32_t byte_size, uint32_t rec
 *
 * @retval number of bytes estimated for storing the GPMF payload
 */
-uint32_t GPMFWriteEstimateBufferSize(size_t ws_handle, uint32_t channel, uint32_t payloadscale);
+uint32_t GPMFWriteEstimateBufferSize(size_t ws_handle, uint32_t channel, uint32_t payloadscale, uint64_t latestTimeStamp);
 
 
 
