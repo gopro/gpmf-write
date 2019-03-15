@@ -636,24 +636,31 @@ again:
 				while (dm->deltaTimeStamp[pos] > dm->deltaTimeStamp[pos + 1])
 					pos++, downsmp++;
 
-				for (; pos < ((MAX_TIMESTAMPS*3)>>2);)
+				do
 				{
-					dm->deltaTimeStamp[downsmp] = dm->deltaTimeStamp[pos] + dm->deltaTimeStamp[pos + 1];
-					dm->sampleCount[downsmp] = dm->sampleCount[pos] + dm->sampleCount[pos + 1];
-					downsmp++;
-					pos += 2;
-				}
-				for (; pos < MAX_TIMESTAMPS; pos++)
-				{
-					dm->deltaTimeStamp[downsmp] = dm->deltaTimeStamp[pos];
-					dm->sampleCount[downsmp] = dm->sampleCount[pos];
-					downsmp++;
-				}
-				for (pos = downsmp; pos < MAX_TIMESTAMPS; pos++)
-				{
-					dm->deltaTimeStamp[pos] = 0;
-					dm->sampleCount[pos] = 0;
-				}
+					for (; pos < ((MAX_TIMESTAMPS*3) >> 2);)
+					{
+						dm->deltaTimeStamp[downsmp] = dm->deltaTimeStamp[pos] + dm->deltaTimeStamp[pos + 1];
+						dm->sampleCount[downsmp] = dm->sampleCount[pos] + dm->sampleCount[pos + 1];
+						downsmp++;
+						pos += 2;
+					}
+					for (; pos < MAX_TIMESTAMPS; pos++)
+					{
+						dm->deltaTimeStamp[downsmp] = dm->deltaTimeStamp[pos];
+						dm->sampleCount[downsmp] = dm->sampleCount[pos];
+						downsmp++;
+					}
+					for (pos = downsmp; pos < MAX_TIMESTAMPS; pos++)
+					{
+						dm->deltaTimeStamp[pos] = 0;
+						dm->sampleCount[pos] = 0;
+					}
+					if (downsmp >= MAX_TIMESTAMPS)
+					{
+						pos = 0, downsmp = 0;
+					}
+				} while (downsmp == 0);
 				dm->payloadTimeStampCount = downsmp;
 			}
 			if(dm->payloadTimeStampCount == 0)
@@ -2831,15 +2838,22 @@ uint32_t GPMFWriteGetPayloadAndSession(	size_t ws_handle, uint32_t channel, uint
 									{
 										pos--;
 										currts -= dm->deltaTimeStamp[pos];
-										dm->sampleCount[pos] -= (uint16_t)(smps - samples2store);
+										dm->sampleCount[pos] = (uint16_t)(smps - samples2store);
 									}
-									dm->deltaTimeStamp[pos] = (uint32_t)(currts + dm->deltaTimeStamp[pos+1] - nextts);
+									if(nextts > currts)
+										dm->deltaTimeStamp[pos] = (uint32_t)(currts + dm->deltaTimeStamp[pos] - nextts);
 
 									dm->firstTimeStamp = nextts;
 									memcpy(&dm->deltaTimeStamp[0], &dm->deltaTimeStamp[pos], sizeof(dm->deltaTimeStamp[0])*(dm->payloadTimeStampCount - pos));
 									memcpy(&dm->sampleCount[0], &dm->sampleCount[pos], sizeof(dm->sampleCount[0])*(dm->payloadTimeStampCount - pos));
 									dm->payloadTimeStampCount -= pos;
-									dm->sampleCount[dm->payloadTimeStampCount] = 0;
+									pos = dm->payloadTimeStampCount;
+									while (pos < MAX_TIMESTAMPS)
+									{
+										dm->deltaTimeStamp[pos] = 0;
+										dm->sampleCount[pos] = 0;
+										pos++;
+									}
 								}
 								else
 								{

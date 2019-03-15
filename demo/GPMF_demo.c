@@ -68,8 +68,8 @@ int main(int argc, char *argv[])
 		size_t handleA = 0;
 		size_t handleB = 0;
 		size_t handleC = 0;
-		char buffer[8192];
-		char sensorA[4096];
+		char buffer[2*8192];
+		char sensorA[2*8192];
 		uint32_t *payload=NULL, payload_size=0, samples, i;
 		uint32_t tmp,faketime,fakedata;
 		float fdata[4];
@@ -125,7 +125,7 @@ int main(int argc, char *argv[])
 		for (faketime = 0; faketime < 10; faketime++)
 		{
 			payloadtick = tick;
-			for (fakedata = 0; fakedata < 50; fakedata++)
+			for (fakedata = 0; fakedata < 100; fakedata++)
 			{
 				int sensor = rand() & 3;
 #ifdef REALTICK
@@ -140,9 +140,9 @@ int main(int argc, char *argv[])
 						break;
 
 					case 1: //pretend Sensor A data
-						//samples = 1 + (rand() % 3); //1-4 values
-						//samples = 2;
-						samples = 1;
+						//samples = 1 + (rand() % 3); //1-3 values
+						samples = 2;
+						//samples = 1;
 						for (i = 0; i < samples; i++)
 						{
 							Adata[i].flags = count++;
@@ -153,7 +153,9 @@ int main(int argc, char *argv[])
 							Adata[i].ID[4] = 5;
 							Adata[i].ID[5] = 6;
 						}
-						err = GPMFWriteStreamStoreStamped(handleA, STR2FOURCC("SnrA"), GPMF_TYPE_COMPLEX, sizeof(sensorAdata), samples, Adata, GPMF_FLAGS_NONE/*|GPMF_FLAGS_STORE_ALL_TIMESTAMPS*/, tick);
+						err = GPMFWriteStreamStoreStamped(handleA, STR2FOURCC("SnrA"), GPMF_TYPE_COMPLEX, sizeof(sensorAdata), samples, Adata, GPMF_FLAGS_NONE, tick);
+						//err = GPMFWriteStreamStoreStamped(handleA, STR2FOURCC("SnrA"), GPMF_TYPE_COMPLEX, sizeof(sensorAdata), samples, Adata, GPMF_FLAGS_NONE|GPMF_FLAGS_STORE_ALL_TIMESTAMPS, tick);
+						//err = GPMFWriteStreamStore(handleA, STR2FOURCC("SnrA"), GPMF_TYPE_COMPLEX, sizeof(sensorAdata), samples, Adata, GPMF_FLAGS_NONE);
 						if (err)
 						{
 							err = GPMFWriteStreamStoreStamped(handleA, STR2FOURCC("SnrA"), GPMF_TYPE_COMPLEX, sizeof(sensorAdata), samples, Adata, GPMF_FLAGS_NONE | GPMF_FLAGS_STORE_ALL_TIMESTAMPS, tick);
@@ -182,7 +184,7 @@ int main(int argc, char *argv[])
 				Sleep(2*samples); // << to help test the time stamps.
 #endif
 			}
-			uint64_t nowtick = payloadtick + (tick - payloadtick) * 81 / 100; // test by reading out only the last half samples
+			uint64_t nowtick = payloadtick + (tick - payloadtick) * 80 / 100; // test by reading out only the last half samples
 			GPMFWriteGetPayloadWindow(gpmfhandle, GPMF_CHANNEL_TIMED, (uint32_t *)buffer, sizeof(buffer), &payload, &payload_size, nowtick);
 			//GPMFWriteGetPayload(gpmfhandle, GPMF_CHANNEL_TIMED, (uint32_t *)buffer, sizeof(buffer), &payload, &payload_size);
 
