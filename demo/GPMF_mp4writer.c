@@ -129,7 +129,8 @@ void CloseExport(size_t handle)
 		for (uint32_t i = 0; i < moov_size_offsets; i++)
 		{
 			uint32_t *lptr = (uint32_t *)&moov[moov_byte_size_offsets[i]];
-			*lptr = BYTESWAP32(BYTESWAP32(*lptr) + mp4->metasize_count * 4);
+			uint32_t offset = BYTESWAP32(*lptr) + mp4->metasize_count * 4;
+			*lptr = BYTESWAP32(offset);
 		}
 
 		fwrite(moov, 1, moov_size, mp4->mediafp);

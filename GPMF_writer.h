@@ -49,7 +49,11 @@ typedef enum
 } MetadataChannel;
 
 
-#define MAX_TIMESTAMPS	50	//per payload, which is typically at 1Hz
+#define MAX_TIMESTAMPS		16
+#define LARGESTTIMESTAMP	0xffffffffffffffff
+
+#define FLOAT_PRECISION float
+//#define FLOAT_PRECISION double
 
 typedef struct device_metadata
 {
@@ -76,8 +80,11 @@ typedef struct device_metadata
 	uint32_t last_nonsticky_fourcc;
 	uint32_t last_nonsticky_typesize;
 	char complex_type[256]; // Maximum structure size for a sample is 255 bytes.
-	uint64_t microSecondTimeStamp[MAX_TIMESTAMPS+1];
-	uint64_t totalTimeStampCount;
+	uint32_t deltaTimeStamp[MAX_TIMESTAMPS];
+	uint16_t sampleCount[MAX_TIMESTAMPS];
+	uint64_t firstTimeStamp;
+	uint64_t lastTimeStamp;
+	uint32_t payloadTimeStampCount;
 	uint32_t quantize;
 } device_metadata;
 
@@ -224,7 +231,7 @@ uint32_t GPMFWriteStreamStore(
 * @param[in] sample_count is the number of samples to store.
 * @param[in] data is a pointer to the array of samples
 * @param[in] flags set the type of storage e.g. GPMF_FLAGS_STICKY
-* @param[in] microSecondTimeStamp a microsecond time stamp from a single clock/soucre for all sensor using this call.
+* @param[in] Time stamp for the first sample in this write.
 *
 * @retval error code
 */
@@ -236,7 +243,7 @@ uint32_t GPMFWriteStreamStoreStamped(
 	uint32_t sample_count,
 	void *data, 
 	uint32_t flags,					// e.g. GPMF_FLAGS_STICKY
-	uint64_t microSecondTimeStamp	// if zero, this is the same call as GPMFWriteStreamStore()
+	uint64_t TimeStamp	// if zero, this is the same call as GPMFWriteStreamStore()
 );
 
 
@@ -323,7 +330,7 @@ int32_t GPMFWriteTypeSize(int type);
 
 /* GPMFWriteGetPayload
 *
-* Called for each payload to be sent to the MP4.
+* Called for each payload to be sent to the MP4, flushes all stored samples.
 *
 * @param[in] ws_handle returned by GPMFWriteServiceInit()
 * @param[in] channel to indicate the type of metadata
@@ -335,6 +342,24 @@ int32_t GPMFWriteTypeSize(int type);
 * @retval error code
 */
 uint32_t GPMFWriteGetPayload(size_t ws_handle, uint32_t channel, uint32_t *buffer, uint32_t buffer_size, uint32_t **payload, uint32_t *size);
+
+
+
+/* GPMFWriteGetPayloadWindow
+*
+* Called for each payload to be sent to the MP4, flush samples up to the provided time stamp.
+*
+* @param[in] ws_handle returned by GPMFWriteServiceInit()
+* @param[in] channel to indicate the type of metadata
+* @param[in] buffer externally allocated buffer where data will be copied to.*
+* @param[in] buffer_size the size of the buffer.*
+* @param[out] payload pointer to the payload (in this function, it will always point to the buffer passed in)
+* @param[out] size the size of returned payload
+* @param[in] latest TimeStamp to get, leave newer sample for a later request.
+*
+* @retval error code
+*/
+uint32_t GPMFWriteGetPayloadWindow(size_t ws_handle, uint32_t channel, uint32_t *buffer, uint32_t buffer_size, uint32_t **payload, uint32_t *size, uint64_t latestTimeStamp);
 
 
 /* GPMFWriteGetPayloadAndSession
@@ -350,13 +375,14 @@ uint32_t GPMFWriteGetPayload(size_t ws_handle, uint32_t channel, uint32_t *buffe
 * @param[out] session pointer to the session payload*
 * @param[out] size the size of returned session payload*
 * @param[in] reduction reduction scaler of the session data.
+* @param[in] latest TimeStamp to get, leave newer sample for a later request.
 *
 * @retval error code
 */
 uint32_t GPMFWriteGetPayloadAndSession(size_t ws_handle, uint32_t channel, uint32_t *buffer, uint32_t buffer_size,
 	uint32_t **payload, uint32_t *size,
-	uint32_t **session, uint32_t *sessionsize, int session_reduction); // reduction is a target sample rate, anything at least twice this is reduced to this rate  
-
+	uint32_t **session, uint32_t *sessionsize, int session_reduction, // reduction is a target sample rate, anything at least twice this is reduced to this rate  
+	uint64_t latestTimeStamp);
 
 /* GPMFWriteIsValidGPMF
 *
