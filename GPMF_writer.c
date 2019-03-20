@@ -587,6 +587,10 @@ void AppendFormattedMetadata(device_metadata *dm, uint32_t *formatted, uint32_t 
 	if(!(flags & GPMF_FLAGS_LOCKED))  // Use this internal flags if called within a Lock()
 		Lock(&dm->device_lock);
 
+	if (sample_count && flags & GPMF_FLAGS_GROUPED)
+		sample_count = 1;
+
+
 	if(TimeStamp != 0 && flags & GPMF_FLAGS_STORE_ALL_TIMESTAMPS)
 	{
 		uint32_t swap64timestamp[2];
@@ -2194,6 +2198,40 @@ uint32_t GPMFCompress(uint32_t* dst_gpmf, uint32_t *src_gpmf, uint32_t payloadAd
 }
 
 
+
+static uint32_t DataSizeForSamples(uint32_t *srcPayload, uint32_t samples2store, uint32_t grouped)
+{
+	uint32_t dataSize = 0;
+
+	if (grouped)
+	{
+		uint32_t i;
+		uint32_t *sample_group = srcPayload;
+
+		//recompute the size for samples2store grouped samples.
+		for (i = 0; i < samples2store; i++)
+		{
+			uint32_t groupbytes = GPMF_DATA_SIZE(sample_group[1]);
+			dataSize += 8 + groupbytes;
+			sample_group += (8 + groupbytes) >> 2;
+		}
+		//remainingSize = currentTotalSampleBytes - dataSize;
+		//remainingOffset = dataSize;
+	}
+	else
+	{
+
+		uint32_t sampleSize = GPMF_SAMPLE_SIZE(srcPayload[1]);
+
+		dataSize = 8 + ((sampleSize*samples2store + 3)&~3);
+		//remainingSize = ((sampleSize * remainingSamples + 3) & ~3);
+		//remainingOffset = sampleSize * remainingSamples;
+	}
+
+	return dataSize;
+}
+
+
 uint32_t GPMFWriteGetPayloadAndSession(	size_t ws_handle, uint32_t channel, uint32_t *buffer, uint32_t buffer_size,
 										uint32_t **payload, uint32_t *payloadsize,
 										uint32_t **session, uint32_t *sessionsize, int session_reduction,
@@ -2276,10 +2314,35 @@ uint32_t GPMFWriteGetPayloadAndSession(	size_t ws_handle, uint32_t channel, uint
 					uint32_t streamsizebytes = 0, *laststreamsizeptr = NULL;
 					size_t namelen;
 					uint32_t namlen4byte;
+					uint32_t grouped = 0;
 
 					uint32_t *src_lptr = (uint32_t *)dm->payload_buffer;
 					uint8_t *src_bptr = (uint8_t *)dm->payload_buffer;
+					uint32_t currentTag = src_lptr[0];
 					uint32_t currentSamples = GPMF_SAMPLES(src_lptr[1]);
+					uint32_t currentTotalSampleBytes = 8 + GPMF_DATA_SIZE(src_lptr[1]);
+					if (currentTag)
+					{
+						uint32_t sampleDatasize = GPMF_DATA_SIZE(src_lptr[1]) >> 2;
+						uint32_t nextTag = src_lptr[2 + sampleDatasize];
+						uint32_t *next_lptr = &src_lptr[2 + sampleDatasize];
+
+						while (nextTag == currentTag) // Grouped data link FACE, HUES, SCEN
+						{
+							currentTotalSampleBytes += 8 + GPMF_DATA_SIZE(next_lptr[1]);
+							sampleDatasize = GPMF_DATA_SIZE(next_lptr[1]) >> 2;
+							nextTag = next_lptr[2 + sampleDatasize];
+							next_lptr = &next_lptr[2 + sampleDatasize];
+							grouped++;
+						}
+
+						if (grouped)
+						{
+							grouped++;
+							currentSamples = grouped;	//As each group sample is one time slot, 
+														//FACEs in one frame, only the separate groups are counted as samples
+						}
+					}
 
 					if(dm->device_id != last_deviceID && dm->device_id != GPMF_DEVICE_ID_PREFORMATTED) // Store device name and id and the begin of the data as a device
 					{
@@ -2542,47 +2605,97 @@ uint32_t GPMFWriteGetPayloadAndSession(	size_t ws_handle, uint32_t channel, uint
 
 							{
 								uint32_t sampleSize;
-								uint32_t *srcpayload = src_lptr;
-								uint32_t *dstpayload = src_lptr;
-								uint32_t dataSize = GPMF_DATA_SIZE(srcpayload[1]);
+								uint32_t *srcPayload = src_lptr;
+								uint32_t *remainingPayload = src_lptr;
+								uint32_t dataSize;
 								uint32_t remainingSamples = 0;
+								uint32_t remainingSize = 0;
+								uint32_t remainingOffset = 0;
 								uint32_t payloadAddition;
+
+								sampleSize = GPMF_SAMPLE_SIZE(srcPayload[1]);
+
+								dataSize = DataSizeForSamples(srcPayload, samples2store, grouped);
+
+								remainingSize = currentTotalSampleBytes - dataSize;
+								remainingOffset = dataSize;
 
 								while (dataSize)
 								{
-									sampleSize = GPMF_SAMPLE_SIZE(srcpayload[1]);
+									payloadAddition = dataSize;
 
-									payloadAddition = 8 + ((sampleSize*samples2store + 3)&~3);
-
-									srcpayload[1] = GPMF_MAKE_TYPE_SIZE_COUNT(GPMF_KEY_TYPE(srcpayload[1]), sampleSize, samples2store);
-
-									if (dm->quantize && payloadAddition > 100)
-										payloadAddition = GPMFCompress(ptr, srcpayload, payloadAddition, dm->quantize);
+									if(!grouped)
+										srcPayload[1] = GPMF_MAKE_TYPE_SIZE_COUNT(GPMF_KEY_TYPE(srcPayload[1]), sampleSize, samples2store);	
+									
+									if (dm->quantize && payloadAddition > 100 && !grouped)
+										payloadAddition = GPMFCompress(ptr, srcPayload, payloadAddition, dm->quantize);
 									else
-										memcpy(ptr, srcpayload, payloadAddition);
+										memcpy(ptr, srcPayload, payloadAddition);
+
 									devicesizebytes += payloadAddition;
 									streamsizebytes += payloadAddition;
 									ptr += (payloadAddition >> 2);
 
 									// restore remaining data
 									remainingSamples = currentSamples - samples2store;
-									srcpayload[1] = GPMF_MAKE_TYPE_SIZE_COUNT(GPMF_KEY_TYPE(srcpayload[1]), sampleSize, remainingSamples);
-									dstpayload[0] = srcpayload[0];
-									dstpayload[1] = srcpayload[1];
-									uint8_t *srcdata = (uint8_t *)&srcpayload[2];
-									srcdata += sampleSize * samples2store;
-									memcpy(&dstpayload[2], srcdata, (sampleSize * remainingSamples + 3) & ~3);
+									if (remainingSamples)
+									{
+										uint8_t *srcdata;
 
-									dstpayload += 2 + ((sampleSize * remainingSamples + 3) >> 2);
-									srcpayload += 2 + (dataSize >> 2);
+										if (grouped)
+										{
+											srcdata = (uint8_t *)srcPayload;
+											srcdata += remainingOffset;
+											memcpy(remainingPayload, srcdata, remainingSize); //move remaining samples down
+											remainingPayload += ((remainingSize + 3) >> 2);
 
-									if (GPMF_KEY_END != srcpayload[0])
-										dataSize = GPMF_DATA_SIZE(srcpayload[1]);
+											srcdata = (uint8_t *)srcPayload;
+											srcdata += (remainingOffset + remainingSize + 3) & ~3;
+										}
+										else
+										{
+											srcPayload[1] = GPMF_MAKE_TYPE_SIZE_COUNT(GPMF_KEY_TYPE(srcPayload[1]), sampleSize, remainingSamples);
+											remainingPayload[0] = srcPayload[0];
+											remainingPayload[1] = srcPayload[1];
+
+											srcdata = (uint8_t *)srcPayload;
+											srcdata += remainingOffset;
+											memcpy(&remainingPayload[2], srcdata, sampleSize*remainingSamples); //move remaining samples down
+											remainingPayload += 2 + ((sampleSize*remainingSamples + 3) >> 2);
+
+											srcdata = (uint8_t *)srcPayload;
+											srcdata += (remainingOffset + sampleSize * remainingSamples + 3) & ~3;
+										}
+
+										{//move remaining GPMF samples down
+											uint32_t *moreGPMF = (uint32_t *)srcdata;
+											uint32_t movebytes = 0;
+											while (*moreGPMF)
+											{
+												movebytes += 8 + GPMF_DATA_SIZE(moreGPMF[1]);
+												moreGPMF += 2 + (GPMF_DATA_SIZE(moreGPMF[1])>>2);
+											}
+											memcpy(remainingPayload, srcdata, movebytes); 
+											remainingPayload[movebytes >> 2] = GPMF_KEY_END;
+										}
+									}
+
+									srcPayload += (currentTotalSampleBytes+3) >> 2;
+									
+									if (GPMF_KEY_END != srcPayload[0])
+									{
+										dataSize = DataSizeForSamples(srcPayload, samples2store, grouped);
+
+										currentTotalSampleBytes = 8 + GPMF_DATA_SIZE(srcPayload[1]); // This is okay for non-grouped data.
+
+										remainingSize = currentTotalSampleBytes - dataSize;
+										remainingOffset = dataSize;
+									}
 									else
 										dataSize = 0;
 								}
 
-								dstpayload[0] = GPMF_KEY_END;
+								remainingPayload[0] = GPMF_KEY_END;
 							}
 						}
 						else // Session processing
