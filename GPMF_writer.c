@@ -587,7 +587,7 @@ void AppendFormattedMetadata(device_metadata *dm, uint32_t *formatted, uint32_t 
 	if(!(flags & GPMF_FLAGS_LOCKED))  // Use this internal flags if called within a Lock()
 		Lock(&dm->device_lock);
 
-	if (sample_count && flags & GPMF_FLAGS_GROUPED)
+	if (flags & GPMF_FLAGS_GROUPED)
 		sample_count = 1;
 
 
@@ -2223,7 +2223,7 @@ static uint32_t DataSizeForSamples(uint32_t *srcPayload, uint32_t samples2store,
 
 		uint32_t sampleSize = GPMF_SAMPLE_SIZE(srcPayload[1]);
 
-		dataSize = 8 + ((sampleSize*samples2store + 3)&~3);
+		dataSize = 8 + sampleSize*samples2store;
 		//remainingSize = ((sampleSize * remainingSamples + 3) & ~3);
 		//remainingOffset = sampleSize * remainingSamples;
 	}
@@ -2632,6 +2632,16 @@ uint32_t GPMFWriteGetPayloadAndSession(	size_t ws_handle, uint32_t channel, uint
 									else
 										memcpy(ptr, srcPayload, payloadAddition);
 
+									if (payloadAddition & 3)
+									{
+										uint8_t *ptr8 = (uint8_t *)ptr + payloadAddition;
+										if ((payloadAddition & 3) <= 3) *ptr8++ = 0;
+										if ((payloadAddition & 3) <= 2) *ptr8++ = 0;
+										if ((payloadAddition & 3) <= 1) *ptr8++ = 0;
+										payloadAddition += 3;
+										payloadAddition &= 0xfffffffc;
+									}
+
 									devicesizebytes += payloadAddition;
 									streamsizebytes += payloadAddition;
 									ptr += (payloadAddition >> 2);
@@ -2685,6 +2695,7 @@ uint32_t GPMFWriteGetPayloadAndSession(	size_t ws_handle, uint32_t channel, uint
 									if (GPMF_KEY_END != srcPayload[0])
 									{
 										dataSize = DataSizeForSamples(srcPayload, samples2store, grouped);
+										sampleSize = GPMF_SAMPLE_SIZE(srcPayload[1]);
 
 										currentTotalSampleBytes = 8 + GPMF_DATA_SIZE(srcPayload[1]); // This is okay for non-grouped data.
 
@@ -2964,8 +2975,18 @@ uint32_t GPMFWriteGetPayloadAndSession(	size_t ws_handle, uint32_t channel, uint
 										currts -= dm->deltaTimeStamp[pos];
 										dm->sampleCount[pos] = (uint16_t)(smps - samples2store);
 									}
-									if(nextts > currts)
-										dm->deltaTimeStamp[pos] = (uint32_t)(currts + dm->deltaTimeStamp[pos] - nextts);
+									if (nextts > currts)
+									{
+										int32_t delta = (int32_t)((int64_t)currts + (int64_t)dm->deltaTimeStamp[pos] - (int64_t)nextts);
+										if (delta >= 0)
+											dm->deltaTimeStamp[pos] = (uint32_t)delta;
+										else
+										{
+											dm->deltaTimeStamp[pos] = 0;
+											if (abs(delta) <= dm->deltaTimeStamp[pos + 1])
+												dm->deltaTimeStamp[pos + 1] += delta;
+										}
+									}
 
 									dm->firstTimeStamp = nextts;
 									memcpy(&dm->deltaTimeStamp[0], &dm->deltaTimeStamp[pos], sizeof(dm->deltaTimeStamp[0])*(dm->payloadTimeStampCount - pos));
