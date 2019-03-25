@@ -76,8 +76,7 @@ int main(int argc, char *argv[])
 		char sensorC[4096];
 		uint32_t *payload=NULL, payload_size=0, samples, i;
 		uint32_t tmp,faketime,fakedata;
-		float fdata[4];
-		uint32_t Ldata[4], count = 0;
+		uint32_t count = 0;
 		uint16_t sdata[40] = { 0 }, signal = 0;
 		char txt[80];
 		uint32_t err;
@@ -168,12 +167,12 @@ int main(int argc, char *argv[])
 
 					case 2: //pretend Sensor B data
 					{
-						static int count = 1;
+						static uint16_t scount = 1;
 						//samples = 0 + (rand() % 4); //0-3 values
 						samples = 1 + (rand() % 3); //1-3 values
 						//samples = 1;
-						for (i = 0; i < samples; i++) sdata[i] = count;// (uint32_t)rand() & 0xffffff;
-						count++;
+						for (i = 0; i < (int)samples; i++) sdata[i] = scount;// (uint32_t)rand() & 0xffffff;
+						scount++;
 						//err = GPMFWriteStreamStoreStamped(handleB, STR2FOURCC("SnrB"), GPMF_TYPE_UNSIGNED_SHORT, sizeof(uint16_t), samples, sdata, GPMF_FLAGS_NONE, tick);
 						err = GPMFWriteStreamStoreStamped(handleB, STR2FOURCC("SnrB"), GPMF_TYPE_UNSIGNED_SHORT, sizeof(uint16_t), samples, sdata, GPMF_FLAGS_GROUPED, tick);
 						//err = GPMFWriteStreamStoreStamped(handleB, STR2FOURCC("SnrB"), GPMF_TYPE_UNSIGNED_SHORT, sizeof(uint16_t), samples, sdata, GPMF_FLAGS_STORE_ALL_TIMESTAMPS, tick);

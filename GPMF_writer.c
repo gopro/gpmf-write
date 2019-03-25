@@ -2,7 +2,7 @@
  *
  *	@brief GPMF formatter library
  *
- *	@version 1.0.1
+ *	@version 1.1.1
  *	
  *	(C) Copyright 2017 GoPro Inc (http://gopro.com/).
  *	
@@ -2542,12 +2542,11 @@ uint32_t GPMFWriteGetPayloadAndSession(	size_t ws_handle, uint32_t channel, uint
 						}
 						else
 						{
-							uint32_t tag; 
 							uint32_t *sticky_lptr = (uint32_t *)dm->payload_sticky_buffer;
+							uint32_t tag = sticky_lptr[0]; 
 							
 							do
 							{
-								tag = sticky_lptr[0];
 								if (session_scale > 0 && 
 									(tag == GPMF_KEY_EMPTY_PAYLOADS || 
 									 tag == GPMF_KEY_TIMING_OFFSET)) // meaningless in Session files
@@ -2588,6 +2587,7 @@ uint32_t GPMFWriteGetPayloadAndSession(	size_t ws_handle, uint32_t channel, uint
 									streamsizebytes += bytes;
 								}
 
+								tag = sticky_lptr[0];
 							} while (GPMF_VALID_FOURCC(tag));
 						}
 					}
@@ -2688,6 +2688,8 @@ uint32_t GPMFWriteGetPayloadAndSession(	size_t ws_handle, uint32_t channel, uint
 											memcpy(remainingPayload, srcdata, movebytes); 
 											remainingPayload[movebytes >> 2] = GPMF_KEY_END;
 										}
+							
+										remainingPayload[0] = GPMF_KEY_END;
 									}
 
 									srcPayload += (currentTotalSampleBytes+3) >> 2;
@@ -2706,7 +2708,6 @@ uint32_t GPMFWriteGetPayloadAndSession(	size_t ws_handle, uint32_t channel, uint
 										dataSize = 0;
 								}
 
-								remainingPayload[0] = GPMF_KEY_END;
 							}
 						}
 						else // Session processing
@@ -2983,7 +2984,7 @@ uint32_t GPMFWriteGetPayloadAndSession(	size_t ws_handle, uint32_t channel, uint
 										else
 										{
 											dm->deltaTimeStamp[pos] = 0;
-											if (abs(delta) <= dm->deltaTimeStamp[pos + 1])
+											if ((uint32_t)abs(delta) <= dm->deltaTimeStamp[pos + 1])
 												dm->deltaTimeStamp[pos + 1] += delta;
 										}
 									}
