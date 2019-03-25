@@ -29,6 +29,8 @@
 #include "GPMF_parser.h"
 #include "GPMF_mp4writer.h"
 
+//#define REALTICK
+
 extern void PrintGPMF(GPMF_stream *);
 
 #if !_WINDOWS
@@ -58,6 +60,8 @@ int main(int argc, char *argv[])
 		return -1;
 	}
 
+	srand(11);
+
 	mp4_handle = OpenMP4Export(argv[1], 1000, 1001);
 
 	gpmfhandle = GPMFWriteServiceInit();
@@ -66,12 +70,13 @@ int main(int argc, char *argv[])
 		size_t handleA = 0;
 		size_t handleB = 0;
 		size_t handleC = 0;
-		char buffer[8192];
-		char sensorA[4096];
-		uint32_t *payload, payload_size, samples, i;
+		char buffer[2*8192];
+		char sensorA[2 * 8192];
+		char sensorB[4096];
+		char sensorC[4096];
+		uint32_t *payload=NULL, payload_size=0, samples, i;
 		uint32_t tmp,faketime,fakedata;
-		float fdata[4];
-		uint32_t Ldata[4], count = 0;
+		uint32_t count = 0;
 		uint16_t sdata[40] = { 0 }, signal = 0;
 		char txt[80];
 		uint32_t err;
@@ -80,47 +85,67 @@ int main(int argc, char *argv[])
 		handleA = GPMFWriteStreamOpen(gpmfhandle, GPMF_CHANNEL_TIMED, GPMF_DEVICE_ID_CAMERA, "MyCamera", sensorA, sizeof(sensorA));
 		if (handleA == 0) goto cleanup;
 
-		handleB = GPMFWriteStreamOpen(gpmfhandle, GPMF_CHANNEL_TIMED, GPMF_DEVICE_ID_CAMERA, "MyCamera", NULL, 0);
+		handleB = GPMFWriteStreamOpen(gpmfhandle, GPMF_CHANNEL_TIMED, GPMF_DEVICE_ID_CAMERA, "MyCamera", sensorB, sizeof(sensorB));
 		if (handleB == 0) goto cleanup;
 
-		handleC = GPMFWriteStreamOpen(gpmfhandle, GPMF_CHANNEL_TIMED, GPMF_DEVICE_ID_CAMERA, "MyCamera", NULL, 0);
+		handleC = GPMFWriteStreamOpen(gpmfhandle, GPMF_CHANNEL_TIMED, GPMF_DEVICE_ID_CAMERA, "MyCamera", sensorC, sizeof(sensorC));
 		if (handleC == 0) goto cleanup;
 
 		//Initialize sensor stream with any sticky data
-		sprintf_s(txt, 80, "Sensor A");
-		GPMFWriteStreamStore(handleA, GPMF_KEY_STREAM_NAME, GPMF_TYPE_STRING_ASCII, strlen(txt), 1, &txt, GPMF_FLAGS_STICKY);
-		sprintf_s(txt, 80, "LB[6]"); // matching sensorAdata
-		GPMFWriteStreamStore(handleA, GPMF_KEY_TYPE, GPMF_TYPE_STRING_ASCII, strlen(txt), 1, &txt, GPMF_FLAGS_STICKY);
+   		sprintf_s(txt, 80, "Sensor A");
+   		GPMFWriteStreamStore(handleA, GPMF_KEY_STREAM_NAME, GPMF_TYPE_STRING_ASCII, (uint32_t)strlen(txt), 1, &txt, GPMF_FLAGS_STICKY);
+   		sprintf_s(txt, 80, "LB[6]"); // matching sensorAdata
+   		GPMFWriteStreamStore(handleA, GPMF_KEY_TYPE, GPMF_TYPE_STRING_ASCII, (uint32_t)strlen(txt), 1, &txt, GPMF_FLAGS_STICKY);
 
 
 		sprintf_s(txt, 80, "Sensor B");
-		GPMFWriteStreamStore(handleB, GPMF_KEY_STREAM_NAME, GPMF_TYPE_STRING_ASCII, strlen(txt), 1, &txt, GPMF_FLAGS_STICKY);
-		tmp = 555;
-		GPMFWriteStreamStore(handleB, GPMF_KEY_SCALE, GPMF_TYPE_UNSIGNED_LONG, sizeof(tmp), 1, &tmp, GPMF_FLAGS_STICKY);
-		fdata[0] = 123.456f; fdata[1] = 74.56f; fdata[2] = 98.76f;
-		GPMFWriteStreamStore(handleB, STR2FOURCC("MyCC"), GPMF_TYPE_FLOAT, sizeof(float), 3, fdata, GPMF_FLAGS_STICKY);
+		GPMFWriteStreamStore(handleB, GPMF_KEY_STREAM_NAME, GPMF_TYPE_STRING_ASCII, (uint32_t)strlen(txt), 1, &txt, GPMF_FLAGS_STICKY);
+		//tmp = 555;
+		//GPMFWriteStreamStore(handleB, GPMF_KEY_SCALE, GPMF_TYPE_UNSIGNED_LONG, sizeof(tmp), 1, &tmp, GPMF_FLAGS_STICKY);
+		//fdata[0] = 123.456f; fdata[1] = 74.56f; fdata[2] = 98.76f;
+		//GPMFWriteStreamStore(handleB, STR2FOURCC("MyCC"), GPMF_TYPE_FLOAT, sizeof(float), 3, fdata, GPMF_FLAGS_STICKY);
 
 
 		sprintf_s(txt, 80, "Sensor C - Compressed");
-		GPMFWriteStreamStore(handleC, GPMF_KEY_STREAM_NAME, GPMF_TYPE_STRING_ASCII, strlen(txt), 1, &txt, GPMF_FLAGS_STICKY);
-		tmp = 1; // quantize by a larger number for more compress, use 1 for lossless (but it may not compress much.)
+		GPMFWriteStreamStore(handleC, GPMF_KEY_STREAM_NAME, GPMF_TYPE_STRING_ASCII, (uint32_t)strlen(txt), 1, &txt, GPMF_FLAGS_STICKY);
+		tmp = 1; // quantize by a larger number for more compress, use 1 for lossless (but it may not compress much.)//
 		GPMFWriteStreamStore(handleC, GPMF_KEY_QUANTIZE, GPMF_TYPE_UNSIGNED_LONG, sizeof(tmp), 1, &tmp, GPMF_FLAGS_STICKY);
 	
 
 		//Flush any stale data before starting video capture.
 		GPMFWriteGetPayload(gpmfhandle, GPMF_CHANNEL_TIMED, (uint32_t *)buffer, sizeof(buffer), &payload, &payload_size);
 
-		for (faketime = 0; faketime < 10; faketime++)
+		uint64_t tick = 1000, firsttick, payloadtick, nowtick;
+#ifdef REALTICK
+		LARGE_INTEGER tt;
+		QueryPerformanceCounter(&tt);
+		firsttick = tick = tt.QuadPart;
+#else
+		firsttick = tick;
+#endif
+		nowtick = tick;
+
+		for (faketime = 0; faketime < 5; faketime++)
 		{
+			payloadtick = tick;
 			for (fakedata = 0; fakedata < 50; fakedata++)
 			{
-				switch(rand() & 3)
+				int sensor = rand() & 3;
+#ifdef REALTICK
+				QueryPerformanceCounter(&tt);
+				tick = tt.QuadPart;
+#endif
+				//sensor = 1;
+				//sensor = 2;
+				switch(sensor)
 				{
 					case 0: //pretend no data
 						break;
 
 					case 1: //pretend Sensor A data
-						samples = 1 + (rand() % 3); //1-4 values
+						//samples = 1 + (rand() % 3); //1-3 values
+						//samples = 2;
+						samples = 1;
 						for (i = 0; i < samples; i++)
 						{
 							Adata[i].flags = count++;
@@ -131,25 +156,57 @@ int main(int argc, char *argv[])
 							Adata[i].ID[4] = 5;
 							Adata[i].ID[5] = 6;
 						}
-						err = GPMFWriteStreamStore(handleA, STR2FOURCC("SnrA"), GPMF_TYPE_COMPLEX, sizeof(sensorAdata), samples, Adata, GPMF_FLAGS_NONE);
-						if (err) printf("err = %d\n", err);
+						err = GPMFWriteStreamStoreStamped(handleA, STR2FOURCC("SnrA"), GPMF_TYPE_COMPLEX, sizeof(sensorAdata), samples, Adata, GPMF_FLAGS_NONE, tick);
+						//err = GPMFWriteStreamStoreStamped(handleA, STR2FOURCC("SnrA"), GPMF_TYPE_COMPLEX, sizeof(sensorAdata), samples, Adata, GPMF_FLAGS_NONE|GPMF_FLAGS_STORE_ALL_TIMESTAMPS, tick);
+						//err = GPMFWriteStreamStore(handleA, STR2FOURCC("SnrA"), GPMF_TYPE_COMPLEX, sizeof(sensorAdata), samples, Adata, GPMF_FLAGS_NONE);
+						if (err)
+						{
+							printf("err = %d\n", err);
+						}
 						break;
 
 					case 2: //pretend Sensor B data
-						samples = 1 + (rand() % 3); //1-4 values
-						for (i = 0; i < samples; i++) Ldata[i] = (uint32_t)rand() & 0xffffff;
-						err = GPMFWriteStreamStore(handleB, STR2FOURCC("SnrB"), GPMF_TYPE_UNSIGNED_LONG, sizeof(uint32_t), samples, Ldata, GPMF_FLAGS_NONE);
-						if (err) printf("err = %d\n", err); 
+					{
+						static uint16_t scount = 1;
+						//samples = 0 + (rand() % 4); //0-3 values
+						samples = 1 + (rand() % 3); //1-3 values
+						//samples = 1;
+						for (i = 0; i < (int)samples; i++) sdata[i] = scount;// (uint32_t)rand() & 0xffffff;
+						scount++;
+						//err = GPMFWriteStreamStoreStamped(handleB, STR2FOURCC("SnrB"), GPMF_TYPE_UNSIGNED_SHORT, sizeof(uint16_t), samples, sdata, GPMF_FLAGS_NONE, tick);
+						err = GPMFWriteStreamStoreStamped(handleB, STR2FOURCC("SnrB"), GPMF_TYPE_UNSIGNED_SHORT, sizeof(uint16_t), samples, sdata, GPMF_FLAGS_GROUPED, tick);
+						//err = GPMFWriteStreamStoreStamped(handleB, STR2FOURCC("SnrB"), GPMF_TYPE_UNSIGNED_SHORT, sizeof(uint16_t), samples, sdata, GPMF_FLAGS_STORE_ALL_TIMESTAMPS, tick);
+						//err = GPMFWriteStreamStore(handleB, STR2FOURCC("SnrB"), GPMF_TYPE_UNSIGNED_SHORT, sizeof(uint16_t), samples, sdata, GPMF_FLAGS_NONE);
+						//err = GPMFWriteStreamStore(handleB, STR2FOURCC("SnrB"), GPMF_TYPE_UNSIGNED_SHORT, sizeof(uint16_t), samples, sdata, GPMF_FLAGS_GROUPED);
+						if (err)
+						{
+							printf("err = %d\n", err);
+						}
+					}
 						break;
 
 					case 3: //pretend Sensor C data, high frequency, demoing compression
 						samples = 10 + (rand() % 30); //10-40 values
-						for (i = 0; i < samples; i++) { sdata[i] = signal + (uint16_t)(rand() & 0xf); signal++; } // signal and noise
+						for (i = 0; i < samples; i++) { sdata[i] = signal + (uint16_t)(rand() & 0x7); signal++; } // signal and noise
+						//err = GPMFWriteStreamStoreStamped(handleC, STR2FOURCC("SnrC"), GPMF_TYPE_UNSIGNED_SHORT, sizeof(uint16_t), samples, sdata, GPMF_FLAGS_NONE, tick);
 						err = GPMFWriteStreamStore(handleC, STR2FOURCC("SnrC"), GPMF_TYPE_UNSIGNED_SHORT, sizeof(uint16_t), samples, sdata, GPMF_FLAGS_NONE);
-						if (err) printf("err = %d\n", err);
+						if (err)
+						{
+							printf("err = %d\n", err);
+						}
 				}
+#ifndef REALTICK
+				//tick += samples * 10;
+				tick += 10;
+#else
+				Sleep(2 * samples); // << to help test the time stamps.
+#endif
 			}
-			GPMFWriteGetPayload(gpmfhandle, GPMF_CHANNEL_TIMED, (uint32_t *)buffer, sizeof(buffer), &payload, &payload_size);
+			nowtick = payloadtick + (tick - payloadtick) * 39 / 50; // test by reading out only the last half samples
+			//nowtick += 100; // test by reading out only the last half samples
+			GPMFWriteGetPayloadWindow(gpmfhandle, GPMF_CHANNEL_TIMED, (uint32_t *)buffer, sizeof(buffer), &payload, &payload_size, nowtick);
+			//GPMFWriteGetPayloadAndSession(gpmfhandle, GPMF_CHANNEL_TIMED, (uint32_t *)buffer, sizeof(buffer), NULL, NULL, &payload, &payload_size, 1, nowtick);
+			//GPMFWriteGetPayload(gpmfhandle, GPMF_CHANNEL_TIMED, (uint32_t *)buffer, sizeof(buffer), &payload, &payload_size);
 
 			printf("payload_size = %d\n", payload_size);
 

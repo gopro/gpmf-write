@@ -2,7 +2,7 @@
  * 
  *  @brief GPMF Parser library include
  * 
- *  @version 1.1.0
+ *  @version 1.1.1
  * 
  *  (C) Copyright 2017 GoPro Inc (http://gopro.com/).
  *
@@ -110,8 +110,9 @@ typedef enum GPMFKey // TAG in all caps are GoPro preserved (are defined by GoPr
 	GPMF_KEY_TOTAL_SAMPLES =	MAKEID('T','S','M','P'),//TOTL - Total Sample Count including the current payload 	
 	GPMF_KEY_TICK =				MAKEID('T','I','C','K'),//TICK - Beginning of data timing (arrival) in milliseconds. 
 	GPMF_KEY_TOCK =				MAKEID('T','O','C','K'),//TOCK - End of data timing (arrival)  in milliseconds. 
-	GPMF_KEY_TIME_STAMP =		MAKEID('S','T','M','P'),//STMP - Time stamp at the source in microseconds for the first sample. 
-	GPMF_KEY_TIME_STAMPS =		MAKEID('S','T','P','S'),//STPS - Stream of all the timestamps delivered. 
+	GPMF_KEY_TIMING_OFFSET =	MAKEID('T','I','M','O'),//TIMO - Time offset of the metadata stream that follows (single 4 byte float)
+	GPMF_KEY_TIME_STAMP =		MAKEID('S','T','M','P'),//STMP - Time stamp for the first sample. 
+	GPMF_KEY_TIME_STAMPS =		MAKEID('S','T','P','S'),//STPS - Stream of all the timestamps delivered (Generally don't use this. This would be if your sensor has no peroidic times, yet precision is required, or for debugging.) 
 	GPMF_KEY_PREFORMATTED =		MAKEID('P','F','R','M'),//PFRM - GPMF data
 	GPMF_KEY_TEMPERATURE_C =	MAKEID('T','M','P','C'),//TMPC - Temperature in Celsius
 	GPMF_KEY_EMPTY_PAYLOADS =	MAKEID('E','M','P','T'),//EMPT - Payloads that are empty since the device start (e.g. BLE disconnect.)
