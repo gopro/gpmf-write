@@ -2199,6 +2199,39 @@ uint32_t GPMFCompress(uint32_t* dst_gpmf, uint32_t *src_gpmf, uint32_t payloadAd
 
 
 
+static uint32_t AreSamplesGrouped(uint32_t *srcPayload, uint32_t *currentTotalSampleBytes)
+{
+	uint32_t grouped = 0;
+	uint32_t currentTag = srcPayload[0];
+
+	if (currentTag)
+	{
+		uint32_t *src_lptr = srcPayload;
+		uint32_t sampleDatasize = GPMF_DATA_SIZE(src_lptr[1]) >> 2;
+		uint32_t nextTag = src_lptr[2 + sampleDatasize];
+		uint32_t *next_lptr = &src_lptr[2 + sampleDatasize];
+
+		while (nextTag == currentTag) // Grouped data link FACE, HUES, SCEN
+		{
+			*currentTotalSampleBytes += 8 + GPMF_DATA_SIZE(next_lptr[1]);
+			sampleDatasize = GPMF_DATA_SIZE(next_lptr[1]) >> 2;
+			nextTag = next_lptr[2 + sampleDatasize];
+			next_lptr = &next_lptr[2 + sampleDatasize];
+			grouped++;
+		}
+
+		if (grouped)
+		{
+			grouped++;
+			//currentSamples = grouped;	//As each group sample is one time slot, 
+			//							//FACEs in one frame, only the separate groups are counted as samples
+		}
+	}
+
+	return grouped;
+}
+
+
 static uint32_t DataSizeForSamples(uint32_t *srcPayload, uint32_t samples2store, uint32_t grouped)
 {
 	uint32_t dataSize = 0;
@@ -2318,31 +2351,12 @@ uint32_t GPMFWriteGetPayloadAndSession(	size_t ws_handle, uint32_t channel, uint
 
 					uint32_t *src_lptr = (uint32_t *)dm->payload_buffer;
 					uint8_t *src_bptr = (uint8_t *)dm->payload_buffer;
-					uint32_t currentTag = src_lptr[0];
 					uint32_t currentSamples = GPMF_SAMPLES(src_lptr[1]);
 					uint32_t currentTotalSampleBytes = 8 + GPMF_DATA_SIZE(src_lptr[1]);
-					if (currentTag)
-					{
-						uint32_t sampleDatasize = GPMF_DATA_SIZE(src_lptr[1]) >> 2;
-						uint32_t nextTag = src_lptr[2 + sampleDatasize];
-						uint32_t *next_lptr = &src_lptr[2 + sampleDatasize];
 
-						while (nextTag == currentTag) // Grouped data link FACE, HUES, SCEN
-						{
-							currentTotalSampleBytes += 8 + GPMF_DATA_SIZE(next_lptr[1]);
-							sampleDatasize = GPMF_DATA_SIZE(next_lptr[1]) >> 2;
-							nextTag = next_lptr[2 + sampleDatasize];
-							next_lptr = &next_lptr[2 + sampleDatasize];
-							grouped++;
-						}
-
-						if (grouped)
-						{
-							grouped++;
-							currentSamples = grouped;	//As each group sample is one time slot, 
-														//FACEs in one frame, only the separate groups are counted as samples
-						}
-					}
+					grouped = AreSamplesGrouped(src_lptr, &currentTotalSampleBytes);
+					if (grouped)
+						currentSamples = grouped;
 
 					if(dm->device_id != last_deviceID && dm->device_id != GPMF_DEVICE_ID_PREFORMATTED) // Store device name and id and the begin of the data as a device
 					{
@@ -2533,7 +2547,7 @@ uint32_t GPMFWriteGetPayloadAndSession(	size_t ws_handle, uint32_t channel, uint
 						}
 
 						//Sticky Metadata for each stream
-						if (session_scale == 0 && dm->lastTimeStamp <= latestTimeStamp) // copy all Sticky data
+						if (session_scale == 0 && samples2store >= currentSamples)// dm->lastTimeStamp <= latestTimeStamp) // copy all Sticky data
 						{
 							memcpy(ptr, dm->payload_sticky_buffer, ((dm->payload_sticky_curr_size + 3)&~3));
 							devicesizebytes += ((dm->payload_sticky_curr_size + 3)&~3);
@@ -2686,20 +2700,24 @@ uint32_t GPMFWriteGetPayloadAndSession(	size_t ws_handle, uint32_t channel, uint
 												moreGPMF += 2 + (GPMF_DATA_SIZE(moreGPMF[1])>>2);
 											}
 											memcpy(remainingPayload, srcdata, movebytes); 
+
 											remainingPayload[movebytes >> 2] = GPMF_KEY_END;
 										}
-							
-										remainingPayload[0] = GPMF_KEY_END;
-									}
 
-									srcPayload += (currentTotalSampleBytes+3) >> 2;
+										srcPayload = remainingPayload;
+									}
+									else
+										srcPayload += (currentTotalSampleBytes+3) >> 2;
 									
 									if (GPMF_KEY_END != srcPayload[0])
 									{
+										currentTotalSampleBytes = 8 + GPMF_DATA_SIZE(srcPayload[1]);
+										grouped = AreSamplesGrouped(srcPayload, &currentTotalSampleBytes);
+										if (grouped)
+											currentSamples = grouped;
+
 										dataSize = DataSizeForSamples(srcPayload, samples2store, grouped);
 										sampleSize = GPMF_SAMPLE_SIZE(srcPayload[1]);
-
-										currentTotalSampleBytes = 8 + GPMF_DATA_SIZE(srcPayload[1]); // This is okay for non-grouped data.
 
 										remainingSize = currentTotalSampleBytes - dataSize;
 										remainingOffset = dataSize;
