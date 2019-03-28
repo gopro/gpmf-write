@@ -58,6 +58,7 @@ typedef enum
 	GPMF_TYPE_SIGNED_64BIT_INT = 'j', //64 bit signed long
 	GPMF_TYPE_UNSIGNED_64BIT_INT = 'J', //64 bit unsigned long	
 	GPMF_TYPE_DOUBLE = 'd', //64 bit double precision float (IEEE 754)
+	GPMF_TYPE_STRING_UTF8 = 'u', //UTF-8 formatted text string.  As the character storage size varies, the size is in bytes, not UTF characters.
 	GPMF_TYPE_UTC_DATE_TIME = 'U', //128-bit ASCII Date + UTC Time format yymmddhhmmss.sss - 16 bytes ASCII (years 20xx covered)
 	GPMF_TYPE_GUID = 'G', //128-bit ID (like UUID)
 
