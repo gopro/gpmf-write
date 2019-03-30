@@ -137,7 +137,7 @@ int main(int argc, char *argv[])
 
 		for (faketime = 0; faketime < 30; faketime++)
 		{
-			uint32_t data_per = 9 + (rand()&3);
+			uint32_t data_per = 29 + (rand()&1);
 
 			payloadtick = tick;
 			for (fakedata = 0; fakedata < data_per; fakedata++)
@@ -281,8 +281,8 @@ int main(int argc, char *argv[])
 				//tick += samples * 10;
 				tick += 100 + (rand()&1);
 
-				if (tick == 5400) 
-					tick += 9;
+				//if (tick == 5400) 
+				//	tick += 9;
 #else
 				Sleep(2 * samples); // << to help test the time stamps.
 #endif

@@ -2349,6 +2349,9 @@ uint32_t GPMFWriteGetPayloadAndSession(	size_t ws_handle, uint32_t channel, uint
 					size_t namelen;
 					uint32_t namlen4byte;
 					uint32_t grouped = 0;
+					uint32_t didRegression = 1;
+					uint64_t next_first_ts = dm->firstTimeStamp;
+					uint32_t ts_pos = 0;
 
 					uint32_t *src_lptr = (uint32_t *)dm->payload_buffer;
 					uint8_t *src_bptr = (uint8_t *)dm->payload_buffer;
@@ -2481,7 +2484,6 @@ uint32_t GPMFWriteGetPayloadAndSession(	size_t ws_handle, uint32_t channel, uint
 						{
 							uint32_t swap64timestamp[2];
 							uint64_t *ptr64 = (uint64_t *)&swap64timestamp[0];
-							uint32_t didRegression = 1;
 
 							if (dm->payloadTimeStampCount > 5)  // reduce sampling jitter if we have enough timestamps, if there is not jitter the timestamps are preserved.
 							{
@@ -2562,7 +2564,8 @@ uint32_t GPMFWriteGetPayloadAndSession(	size_t ws_handle, uint32_t channel, uint
 									else
 									{
 										didRegression = 0;
-										
+
+										#if 0 //DEBUG
 										*ptr64 = BYTESWAP64(dm->firstTimeStamp);
 										*ptr++ = STR2FOURCC("CRZY");
 										*ptr++ = GPMF_MAKE_TYPE_SIZE_COUNT(GPMF_TYPE_UNSIGNED_LONG, 8, 1);
@@ -2570,6 +2573,7 @@ uint32_t GPMFWriteGetPayloadAndSession(	size_t ws_handle, uint32_t channel, uint
 										*ptr++ = BYTESWAP32(dm->payloadTimeStampCount);
 										devicesizebytes += 16;
 										streamsizebytes += 16;
+										#endif
 									}
 								}
 								else
@@ -2578,15 +2582,6 @@ uint32_t GPMFWriteGetPayloadAndSession(	size_t ws_handle, uint32_t channel, uint
 								}
 							}
 
-							if(didRegression == 0)
-							{
-								if (dm->payloadTimeStampCount && (currentSamples - dm->sampleCount[dm->payloadTimeStampCount - 1]) >= 1)
-									slope = (FLOAT_PRECISION)(dm->lastTimeStamp - dm->firstTimeStamp) / (FLOAT_PRECISION)(currentSamples - dm->sampleCount[dm->payloadTimeStampCount - 1]);
-								else
-									slope = 0.0;
-
-								intercept = (FLOAT_PRECISION)dm->firstTimeStamp;
-							}
 							*ptr64 = BYTESWAP64(dm->firstTimeStamp);
 
 							*ptr++ = GPMF_KEY_TIME_STAMP;
@@ -2599,8 +2594,24 @@ uint32_t GPMFWriteGetPayloadAndSession(	size_t ws_handle, uint32_t channel, uint
 
 							if (LARGESTTIMESTAMP == latestTimeStamp)
 								samples2store = 0xffffff;
-							else if(latestTimeStamp > dm->firstTimeStamp)
-								samples2store = (uint32_t)((FLOAT_PRECISION)(latestTimeStamp - dm->firstTimeStamp) / slope + 0.5);
+							else if (latestTimeStamp > dm->firstTimeStamp)
+							{
+								if(didRegression)
+									samples2store = (uint32_t)((FLOAT_PRECISION)(latestTimeStamp - dm->firstTimeStamp) / slope + 0.5);
+								else
+								{
+									uint32_t smps = 0;
+									next_first_ts = dm->firstTimeStamp;
+									ts_pos = 0;
+									while (next_first_ts < latestTimeStamp && ts_pos < dm->payloadTimeStampCount)
+									{
+										next_first_ts += dm->deltaTimeStamp[ts_pos];
+										smps += dm->sampleCount[ts_pos];
+										ts_pos++;
+									}
+									samples2store = smps;
+								}
+							}
 							else
 								samples2store = 0;
 						}
@@ -2663,7 +2674,7 @@ uint32_t GPMFWriteGetPayloadAndSession(	size_t ws_handle, uint32_t channel, uint
 								tag = sticky_lptr[0];
 							} while (GPMF_VALID_FOURCC(tag));
 						}
-#if 0 //DEBUG
+#if 1 //DEBUG
 						*ptr++ = STR2FOURCC("GRPD");
 						*ptr++ = GPMF_MAKE_TYPE_SIZE_COUNT(GPMF_TYPE_UNSIGNED_LONG, 4, 1);
 						*ptr++ = BYTESWAP32(grouped);
@@ -3065,7 +3076,7 @@ uint32_t GPMFWriteGetPayloadAndSession(	size_t ws_handle, uint32_t channel, uint
 					{
 						if(dm->payload_curr_size > 0 && dm->device_id != GPMF_DEVICE_ID_PREFORMATTED) // only clear is used for metadata, PREFORMATTED uses this buffer for nested payloads.
 						{
-							src_lptr = (uint32_t *)dm->payload_buffer;
+							//src_lptr = (uint32_t *)dm->payload_buffer;
 
 							if (samples2store >= currentSamples)
 							{
@@ -3075,60 +3086,57 @@ uint32_t GPMFWriteGetPayloadAndSession(	size_t ws_handle, uint32_t channel, uint
 								dm->deltaTimeStamp[0] = 0;
 								dm->sampleCount[0] = 0;
 								dm->payloadTimeStampCount = 0;
-								dm->firstTimeStamp = 0;
-								dm->lastTimeStamp = 0;
+								dm->firstTimeStamp = next_first_ts;
 							}
 							else
 							{
-								uint64_t nextts = (uint64_t)((FLOAT_PRECISION)samples2store * slope + intercept + 0.5);
-								uint64_t currts = dm->firstTimeStamp;
-								uint32_t pos = 0;
-								uint32_t smps = 0;
-								while (smps < samples2store && pos < dm->payloadTimeStampCount)
+								if (didRegression == 1)
 								{
-									currts += dm->deltaTimeStamp[pos];
-									smps += dm->sampleCount[pos];
-									pos++;
-								}
+									uint64_t nextts = (uint64_t)((FLOAT_PRECISION)samples2store * slope + intercept + 0.5);
+									uint64_t currts = dm->firstTimeStamp;
+									uint32_t smps = 0;
+									ts_pos = 0;
+									while (smps < samples2store && ts_pos < dm->payloadTimeStampCount)
+									{
+										currts += dm->deltaTimeStamp[ts_pos];
+										smps += dm->sampleCount[ts_pos];
+										ts_pos++;
+									}
 
-								if (pos < dm->payloadTimeStampCount)
-								{
 									if (smps > samples2store)
 									{
-										pos--;
-										currts -= dm->deltaTimeStamp[pos];
-										dm->sampleCount[pos] = (uint16_t)(smps - samples2store);
+										ts_pos--;
+										currts -= dm->deltaTimeStamp[ts_pos];
+										dm->sampleCount[ts_pos] = (uint16_t)(smps - samples2store);
 									}
 									if (nextts > currts)
 									{
-										int32_t delta = (int32_t)((int64_t)currts + (int64_t)dm->deltaTimeStamp[pos] - (int64_t)nextts);
+										int32_t delta = (int32_t)((int64_t)currts + (int64_t)dm->deltaTimeStamp[ts_pos] - (int64_t)nextts);
 										if (delta >= 0)
-											dm->deltaTimeStamp[pos] = (uint32_t)delta;
+											dm->deltaTimeStamp[ts_pos] = (uint32_t)delta;
 										else
 										{
-											dm->deltaTimeStamp[pos] = 0;
-											if ((uint32_t)abs(delta) <= dm->deltaTimeStamp[pos + 1])
-												dm->deltaTimeStamp[pos + 1] += delta;
+											dm->deltaTimeStamp[ts_pos] = 0;
+											if ((uint32_t)abs(delta) <= dm->deltaTimeStamp[ts_pos + 1])
+												dm->deltaTimeStamp[ts_pos + 1] += delta;
 										}
 									}
 
 									dm->firstTimeStamp = nextts;
-									memcpy(&dm->deltaTimeStamp[0], &dm->deltaTimeStamp[pos], sizeof(dm->deltaTimeStamp[0])*(dm->payloadTimeStampCount - pos));
-									memcpy(&dm->sampleCount[0], &dm->sampleCount[pos], sizeof(dm->sampleCount[0])*(dm->payloadTimeStampCount - pos));
-									dm->payloadTimeStampCount -= pos;
-									pos = dm->payloadTimeStampCount;
-									while (pos < MAX_TIMESTAMPS)
-									{
-										dm->deltaTimeStamp[pos] = 0;
-										dm->sampleCount[pos] = 0;
-										pos++;
-									}
 								}
 								else
 								{
-									dm->deltaTimeStamp[0] = 0;
-									dm->sampleCount[0] = 0;
-									dm->payloadTimeStampCount = 0;
+									dm->firstTimeStamp = next_first_ts;
+								}
+								memcpy(&dm->deltaTimeStamp[0], &dm->deltaTimeStamp[ts_pos], sizeof(dm->deltaTimeStamp[0])*(dm->payloadTimeStampCount - ts_pos));
+								memcpy(&dm->sampleCount[0], &dm->sampleCount[ts_pos], sizeof(dm->sampleCount[0])*(dm->payloadTimeStampCount - ts_pos));
+								dm->payloadTimeStampCount -= ts_pos;
+								ts_pos = dm->payloadTimeStampCount;
+								while (ts_pos < MAX_TIMESTAMPS)
+								{
+									dm->deltaTimeStamp[ts_pos] = 0;
+									dm->sampleCount[ts_pos] = 0;
+									ts_pos++;
 								}
 
 								dm->payload_curr_size = SeekEndGPMF(dm->payload_buffer, dm->payload_alloc_size);
