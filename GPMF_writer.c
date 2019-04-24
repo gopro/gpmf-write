@@ -2614,13 +2614,16 @@ uint32_t GPMFWriteGetPayloadAndSession(	size_t ws_handle, uint32_t channel, uint
 
 									if (dm->sampleCount[ts_pos] > 1) // multiple sample stored with one timestamp, interpolate
 									{
-										uint32_t additionSmps;
+										uint32_t additionalSamples;
+										uint64_t additionalTicks;
 
-										additionSmps = dm->sampleCount[ts_pos] * (latestTimeStamp - next_first_ts) / dm->deltaTimeStamp[ts_pos];
-										dm->deltaTimeStamp[ts_pos] -= additionSmps * dm->deltaTimeStamp[ts_pos] / dm->sampleCount[ts_pos];
-										dm->sampleCount[ts_pos] -= additionSmps;
+										additionalSamples = dm->sampleCount[ts_pos] * (latestTimeStamp - next_first_ts) / dm->deltaTimeStamp[ts_pos];
+										additionalTicks = additionalSamples * dm->deltaTimeStamp[ts_pos] / dm->sampleCount[ts_pos];
+										dm->sampleCount[ts_pos] -= additionalSamples;
+										dm->deltaTimeStamp[ts_pos] -= additionalTicks;
 
-										smps += additionSmps;
+										smps += additionalSamples;
+										next_first_ts += additionalTicks;
 									}
 
 									samples2store = smps;
