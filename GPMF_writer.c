@@ -2655,7 +2655,7 @@ uint32_t GPMFWriteGetPayloadAndSession(	size_t ws_handle, uint32_t channel, uint
 							{
 								if (session_scale > 0 && 
 									(tag == GPMF_KEY_EMPTY_PAYLOADS || 
-									 tag == GPMF_KEY_TIMING_OFFSET)) // meaningless in Session files
+									 tag == GPMF_KEY_TIME_OFFSET)) // meaningless in Session files
 								{
 									sticky_lptr += (8 + GPMF_DATA_SIZE(sticky_lptr[1])) >> 2;
 								}
