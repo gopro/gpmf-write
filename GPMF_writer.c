@@ -35,6 +35,7 @@
 #endif
 #define ERR_MSG gp_print
 
+#define MDA_DEBUG 0
 
 #if !_WINDOWS
 #define strcpy_s(a,b,c) strcpy(a,c)
@@ -2385,7 +2386,7 @@ uint32_t GPMFWriteGetPayloadAndSession(	size_t ws_handle, uint32_t channel, uint
 					size_t namelen;
 					uint32_t namlen4byte;
 					uint32_t grouped = 0;
-					uint32_t didRegression = 1;
+					uint32_t didRegression = 0;
 					uint64_t next_first_ts = dm->firstTimeStamp;
 					uint32_t ts_pos = 0;
 
@@ -2567,18 +2568,11 @@ uint32_t GPMFWriteGetPayloadAndSession(	size_t ws_handle, uint32_t channel, uint
 
 									uint64_t computedTimeStamp = (uint64_t)(intercept + 0.5); // compute more accurate timestamp
 
-									if (computedTimeStamp < dm->lastTimeStamp) // i.e. not crazy
+									if (slope > 0 && computedTimeStamp < dm->lastTimeStamp) // i.e. not crazy
 									{
 										dm->firstTimeStamp = computedTimeStamp;
+										didRegression = 1;
 									}
-									else
-									{
-										didRegression = 0;
-									}
-								}
-								else
-								{
-									didRegression = 0;
 								}
 							}
 
