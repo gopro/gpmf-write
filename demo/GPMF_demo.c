@@ -481,7 +481,7 @@ int main(int argc, char *argv[])
 			}
 
 			if(faketime == 0)
-				GPMFWriteGetPayloadWindow(gpmfhandle, GPMF_CHANNEL_TIMED, (uint32_t *)buffer, sizeof(buffer), &payload, &payload_size, 250); // Flush partial second
+				GPMFWriteGetPayloadWindow(gpmfhandle, GPMF_CHANNEL_TIMED, (uint32_t *)buffer, sizeof(buffer), &payload, &payload_size, 299); // Flush partial second
 
 			nowtick = payloadtick + (tick - payloadtick) * 8 / 10; // test by reading out only the last half samples
 			nowtick = tick+1; // test by reading out only the last half samples
