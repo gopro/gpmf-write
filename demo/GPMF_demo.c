@@ -289,7 +289,7 @@ int main(int argc, char *argv[])
 		GPMFWriteGetPayload(gpmfhandle, GPMF_CHANNEL_SETTINGS, (uint32_t *)buffer, sizeof(buffer), &payload, &payload_size);
 
 
-		uint64_t tick = 0, firsttick, payloadtick, nowtick;
+		uint64_t tick = 1, firsttick, payloadtick, nowtick;
 #ifdef REALTICK
 		LARGE_INTEGER tt;
 		QueryPerformanceCounter(&tt);
@@ -325,17 +325,13 @@ int main(int argc, char *argv[])
 #if ENABLE_SNR_B
 						uint64_t timestamp = (uint64_t)tick;
 
-						samples = 1;
-						//bdata[0] = count++;
-						//err = GPMFWriteStreamStore(handleB, STR2FOURCC("GYRT"), GPMF_TYPE_UNSIGNED_64BIT_INT, sizeof(uint64_t), 1, &timestamp, GPMF_FLAGS_NONE);
-						
-						for (k = 0; k < 20; k++)
+						for (k = 0; k < 10; k++)
 						{
 							sdata[k * 3 + 0] = count;
 							sdata[k * 3 + 1] = count;
 							sdata[k * 3 + 2] = count++;
 						}
-						err = GPMFWriteStreamStore(handleB, STR2FOURCC("GYRO"), GPMF_TYPE_UNSIGNED_SHORT, sizeof(uint16_t) * 3, k, sdata, GPMF_FLAGS_NONE, tick);
+						err = GPMFWriteStreamStoreStamped(handleB, STR2FOURCC("GYRO"), GPMF_TYPE_UNSIGNED_SHORT, sizeof(uint16_t) * 3, k, sdata, GPMF_FLAGS_NONE, tick);
 	#if ENABLE_SNR_A
 						err = GPMFWriteStreamStoreStamped(handleA, STR2FOURCC("ACCL"), GPMF_TYPE_UNSIGNED_SHORT, sizeof(uint16_t) * 3, k, sdata, GPMF_FLAGS_NONE, tick);
 	#endif
@@ -485,7 +481,7 @@ int main(int argc, char *argv[])
 			}
 
 			if(faketime == 0)
-				GPMFWriteGetPayloadWindow(gpmfhandle, GPMF_CHANNEL_TIMED, (uint32_t *)buffer, sizeof(buffer), &payload, &payload_size, 229); // Flush partial second
+				GPMFWriteGetPayloadWindow(gpmfhandle, GPMF_CHANNEL_TIMED, (uint32_t *)buffer, sizeof(buffer), &payload, &payload_size, 250); // Flush partial second
 
 			nowtick = payloadtick + (tick - payloadtick) * 8 / 10; // test by reading out only the last half samples
 			nowtick = tick+1; // test by reading out only the last half samples
