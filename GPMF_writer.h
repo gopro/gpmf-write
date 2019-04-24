@@ -23,13 +23,14 @@
 
 
 #define GPMF_VERS_MAJOR	(1)
-#define GPMF_VERS_MINOR	(1)
+#define GPMF_VERS_MINOR	(2)
 #define GPMF_VERS_POINT	(0)
 
 #define GPMF_VERS	(GPMF_VERS_MAJOR<<0)|(GPMF_VERS_MINOR<<8)|(GPMF_VERS_POINT<<16)
 
 #include "threadlock.h"
 #include "GPMF_common.h"
+#include "GPMF_bitstream.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -48,7 +49,11 @@ typedef enum
 } MetadataChannel;
 
 
-#define MAX_TIMESTAMPS	50	//per payload, which is typically at 1Hz
+#define MAX_TIMESTAMPS		32
+#define LARGESTTIMESTAMP	0xffffffffffffffff
+
+#define FLOAT_PRECISION float
+//#define FLOAT_PRECISION double
 
 typedef struct device_metadata
 {
@@ -75,8 +80,12 @@ typedef struct device_metadata
 	uint32_t last_nonsticky_fourcc;
 	uint32_t last_nonsticky_typesize;
 	char complex_type[256]; // Maximum structure size for a sample is 255 bytes.
-	uint64_t microSecondTimeStamp[MAX_TIMESTAMPS+1];
-	uint64_t totalTimeStampCount;
+	uint32_t deltaTimeStamp[MAX_TIMESTAMPS];
+	uint16_t sampleCount[MAX_TIMESTAMPS];
+	uint64_t firstTimeStamp;
+	uint64_t lastTimeStamp;
+	uint32_t payloadTimeStampCount;
+	uint32_t quantize;
 } device_metadata;
 
 #define GPMF_STICKY_PAYLOAD_SIZE			256	// can be increased if need
@@ -105,7 +114,7 @@ typedef struct device_metadata
 #define GPMF_FLAGS_DONT_COUNT			32 // Internal : Some CV extracted metadata may take computation time, this is an internal flag used by MetadataStreamAperiodic...().
 #define GPMF_FLAGS_SORTED				64 // Special case for non-sticky global data, data is presort by the quanity of the first field. 
 												// e.g. a machine vision confident value could autopriority the stored data (and trucate if storage is limited low priority data.) 
-#define GPMF_FLAGS_STORE_ALL_TIMESTAMPS	128	// Generally don't use this. This would be if you sensor is has no peroidic times, yet precision is required, or for debugging.  
+#define GPMF_FLAGS_STORE_ALL_TIMESTAMPS	128	// Generally don't use this. This would be if your sensor is has no peroidic times, yet precision is required, or for debugging.  
 #define GPMF_FLAGS_ADD_TICK				256	// Generally don't use this. This is for emulating old style GoPro metadata that used a Millisecond tick from the OS timer.							
 
 #define GPMF_FLAGS_LOCKED 				(1<<31) //Metadata Internal use only
@@ -222,7 +231,7 @@ uint32_t GPMFWriteStreamStore(
 * @param[in] sample_count is the number of samples to store.
 * @param[in] data is a pointer to the array of samples
 * @param[in] flags set the type of storage e.g. GPMF_FLAGS_STICKY
-* @param[in] microSecondTimeStamp a microsecond time stamp from a single clock/soucre for all sensor using this call.
+* @param[in] Time stamp for the first sample in this write.
 *
 * @retval error code
 */
@@ -234,7 +243,7 @@ uint32_t GPMFWriteStreamStoreStamped(
 	uint32_t sample_count,
 	void *data, 
 	uint32_t flags,					// e.g. GPMF_FLAGS_STICKY
-	uint64_t microSecondTimeStamp	// if zero, this is the same call as GPMFWriteStreamStore()
+	uint64_t TimeStamp	// if zero, this is the same call as GPMFWriteStreamStore()
 );
 
 
@@ -321,7 +330,7 @@ int32_t GPMFWriteTypeSize(int type);
 
 /* GPMFWriteGetPayload
 *
-* Called for each payload to be sent to the MP4.
+* Called for each payload to be sent to the MP4, flushes all stored samples.
 *
 * @param[in] ws_handle returned by GPMFWriteServiceInit()
 * @param[in] channel to indicate the type of metadata
@@ -333,6 +342,24 @@ int32_t GPMFWriteTypeSize(int type);
 * @retval error code
 */
 uint32_t GPMFWriteGetPayload(size_t ws_handle, uint32_t channel, uint32_t *buffer, uint32_t buffer_size, uint32_t **payload, uint32_t *size);
+
+
+
+/* GPMFWriteGetPayloadWindow
+*
+* Called for each payload to be sent to the MP4, flush samples up to the provided time stamp.
+*
+* @param[in] ws_handle returned by GPMFWriteServiceInit()
+* @param[in] channel to indicate the type of metadata
+* @param[in] buffer externally allocated buffer where data will be copied to.*
+* @param[in] buffer_size the size of the buffer.*
+* @param[out] payload pointer to the payload (in this function, it will always point to the buffer passed in)
+* @param[out] size the size of returned payload
+* @param[in] latest TimeStamp to get, leave newer sample for a later request.
+*
+* @retval error code
+*/
+uint32_t GPMFWriteGetPayloadWindow(size_t ws_handle, uint32_t channel, uint32_t *buffer, uint32_t buffer_size, uint32_t **payload, uint32_t *size, uint64_t latestTimeStamp);
 
 
 /* GPMFWriteGetPayloadAndSession
@@ -348,13 +375,14 @@ uint32_t GPMFWriteGetPayload(size_t ws_handle, uint32_t channel, uint32_t *buffe
 * @param[out] session pointer to the session payload*
 * @param[out] size the size of returned session payload*
 * @param[in] reduction reduction scaler of the session data.
+* @param[in] latest TimeStamp to get, leave newer sample for a later request.
 *
 * @retval error code
 */
 uint32_t GPMFWriteGetPayloadAndSession(size_t ws_handle, uint32_t channel, uint32_t *buffer, uint32_t buffer_size,
 	uint32_t **payload, uint32_t *size,
-	uint32_t **session, uint32_t *sessionsize, int session_reduction); // reduction is a target sample rate, anything at least twice this is reduced to this rate  
-
+	uint32_t **session, uint32_t *sessionsize, int session_reduction, // reduction is a target sample rate, anything at least twice this is reduced to this rate  
+	uint64_t latestTimeStamp);
 
 /* GPMFWriteIsValidGPMF
 *
@@ -379,7 +407,7 @@ uint32_t GPMFWriteIsValidGPMF(uint32_t *buffer, uint32_t byte_size, uint32_t rec
 *
 * @retval number of bytes estimated for storing the GPMF payload
 */
-uint32_t GPMFWriteEstimateBufferSize(size_t ws_handle, uint32_t channel, uint32_t payloadscale);
+uint32_t GPMFWriteEstimateBufferSize(size_t ws_handle, uint32_t channel, uint32_t payloadscale, uint64_t latestTimeStamp);
 
 
 

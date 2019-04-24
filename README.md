@@ -27,7 +27,7 @@ Most developers using GPMF will likely only need the [GPMF-parser](https://githu
 
 ## Not-included
 
-* MP4/MOV multiplexing or writing.
+* A robust MP4/MOV multiplexing or writing tool, although a crude one is provided as demo only to enable GPMF mux'd MOV exports.
 
 # License Terms
 

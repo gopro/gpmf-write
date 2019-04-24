@@ -2,7 +2,7 @@
  * 
  *  @brief GPMF Parser library include
  * 
- *  @version 1.1.0
+ *  @version 1.1.1
  * 
  *  (C) Copyright 2017 GoPro Inc (http://gopro.com/).
  *
@@ -58,13 +58,16 @@ typedef enum
 	GPMF_TYPE_SIGNED_64BIT_INT = 'j', //64 bit signed long
 	GPMF_TYPE_UNSIGNED_64BIT_INT = 'J', //64 bit unsigned long	
 	GPMF_TYPE_DOUBLE = 'd', //64 bit double precision float (IEEE 754)
+	GPMF_TYPE_STRING_UTF8 = 'u', //UTF-8 formatted text string.  As the character storage size varies, the size is in bytes, not UTF characters.
 	GPMF_TYPE_UTC_DATE_TIME = 'U', //128-bit ASCII Date + UTC Time format yymmddhhmmss.sss - 16 bytes ASCII (years 20xx covered)
 	GPMF_TYPE_GUID = 'G', //128-bit ID (like UUID)
 
 	GPMF_TYPE_COMPLEX = '?', //for sample with complex data structures, base size in bytes.  Data is either opaque, or the stream has a TYPE structure field for the sample.
+	GPMF_TYPE_COMPRESSED = '#', //Huffman compression STRM payloads.  4-CC <type><size><rpt> <data ...> is compressed as 4-CC '#'<new size/rpt> <type><size><rpt> <compressed data ...>
 
 	GPMF_TYPE_NEST = 0, // used to nest more GPMF formatted metadata 
 
+	GPMF_TYPE_ERROR = 0xff // used to report an error
 } GPMF_SampleType;
 
 
@@ -75,6 +78,7 @@ typedef enum
 #define BYTESWAP64(a)			(((a&0xff)<<56)|((a&0xff00)<<40)|((a&0xff0000)<<24)|((a&0xff000000)<<8) | ((a>>56)&0xff)|((a>>40)&0xff00)|((a>>24)&0xff0000)|((a>>8)&0xff000000) )
 #define BYTESWAP32(a)			(((a&0xff)<<24)|((a&0xff00)<<8)|((a>>8)&0xff00)|((a>>24)&0xff))
 #define BYTESWAP16(a)			((((a)>>8)&0xff)|(((a)<<8)&0xff00))
+#define BYTESWAP2x16(a)			(((a>>8)&0xff)|((a<<8)&0xff00)|((a>>8)&0xff0000)|((a<<8)&0xff000000))
 #define NOSWAP8(a)				(a)
 
 #define GPMF_SAMPLES(a)			(((a>>24) & 0xff)|(((a>>16)&0xff)<<8))
@@ -107,11 +111,13 @@ typedef enum GPMFKey // TAG in all caps are GoPro preserved (are defined by GoPr
 	GPMF_KEY_TOTAL_SAMPLES =	MAKEID('T','S','M','P'),//TOTL - Total Sample Count including the current payload 	
 	GPMF_KEY_TICK =				MAKEID('T','I','C','K'),//TICK - Beginning of data timing (arrival) in milliseconds. 
 	GPMF_KEY_TOCK =				MAKEID('T','O','C','K'),//TOCK - End of data timing (arrival)  in milliseconds. 
-	GPMF_KEY_TIME_STAMP =		MAKEID('S','T','M','P'),//STMP - Time stamp at the source in microseconds for the first sample. 
-	GPMF_KEY_TIME_STAMPS =		MAKEID('S','T','P','S'),//STPS - Stream of all the timestamps delivered. 
+	GPMF_KEY_TIME_OFFSET =	    MAKEID('T','I','M','O'),//TIMO - Time offset of the metadata stream that follows (single 4 byte float)
+	GPMF_KEY_TIME_STAMP =		MAKEID('S','T','M','P'),//STMP - Time stamp for the first sample. 
+	GPMF_KEY_TIME_STAMPS =		MAKEID('S','T','P','S'),//STPS - Stream of all the timestamps delivered (Generally don't use this. This would be if your sensor has no peroidic times, yet precision is required, or for debugging.) 
 	GPMF_KEY_PREFORMATTED =		MAKEID('P','F','R','M'),//PFRM - GPMF data
 	GPMF_KEY_TEMPERATURE_C =	MAKEID('T','M','P','C'),//TMPC - Temperature in Celsius
 	GPMF_KEY_EMPTY_PAYLOADS =	MAKEID('E','M','P','T'),//EMPT - Payloads that are empty since the device start (e.g. BLE disconnect.)
+	GPMF_KEY_QUANTIZE =			MAKEID('Q','U','A','N'),//QUAN - quantize used to enable stream compression - 1 -  enable, 2+ enable and quantize by this value
 	GPMF_KEY_VERSION =			MAKEID('V','E','R','S'),//VERS - version of the metadata stream (debugging)
 	GPMF_KEY_FREESPACE =		MAKEID('F','R','E','E'),//FREE - n bytes reserved for more metadata added to an existing stream
 	GPMF_KEY_REMARK =			MAKEID('R','M','R','K'),//RMRK - adding comments to the bitstream (debugging)

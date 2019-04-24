@@ -2,7 +2,7 @@
  *
  *	@brief GPMF formatter library
  *
- *	@version 1.0.1
+ *	@version 1.1.1
  *	
  *	(C) Copyright 2017 GoPro Inc (http://gopro.com/).
  *	
@@ -69,6 +69,7 @@ int32_t GPMFWriteTypeSize(int type)
 	case GPMF_TYPE_STRING_ASCII:		ssize = 1; break;
 	case GPMF_TYPE_SIGNED_BYTE:			ssize = 1; break;
 	case GPMF_TYPE_UNSIGNED_BYTE:		ssize = 1; break;
+	case GPMF_TYPE_STRING_UTF8:			ssize = 1; break; 
 
 	// These datatype can always be stored in Big-Endian
 	case GPMF_TYPE_SIGNED_SHORT:		ssize = 2; break;
@@ -87,10 +88,11 @@ int32_t GPMFWriteTypeSize(int type)
 
 	case GPMF_TYPE_GUID:				ssize = 16; break;
 	case GPMF_TYPE_UTC_DATE_TIME:		ssize = 16; break;
-
-	case GPMF_TYPE_COMPLEX:				ssize = -1; break; // unsupported for structsize type
-	case GPMF_TYPE_NEST:				ssize = -1; break;  // unsupported for structsize type
-	default:								ssize = -1;  // unsupported for structsize type
+	
+	case GPMF_TYPE_COMPRESSED:			ssize = 1; break;  
+	case GPMF_TYPE_COMPLEX:				ssize = -1; break;	// unsupported for structsize type
+	case GPMF_TYPE_NEST:				ssize = -1; break;	// unsupported for structsize type
+	default:							ssize = -1;  		// unsupported for structsize type
 	}
 
 	return ssize;
@@ -106,6 +108,7 @@ int32_t GPMFWriteEndianSize(int type)
 	case GPMF_TYPE_STRING_ASCII:		ssize = 1; break;
 	case GPMF_TYPE_SIGNED_BYTE:			ssize = 1; break;
 	case GPMF_TYPE_UNSIGNED_BYTE:		ssize = 1; break;
+	case GPMF_TYPE_STRING_UTF8:			ssize = 1; break; 
 
 	// These datatype can always be stored in Big-Endian
 	case GPMF_TYPE_SIGNED_SHORT:		ssize = 2; break;
@@ -291,15 +294,15 @@ size_t GPMFWriteStreamOpen(size_t ws_handle, uint32_t channel, uint32_t device_i
     if(device_id == GPMF_DEVICE_ID_PREFORMATTED) // use this stream to embed all external streams
     {
 		int i;	
-		uint32_t *buffer = &dm->payload_buffer[3];
+		uint32_t *extbuffer = &dm->payload_buffer[3];
 		uint32_t strm_buffer_long_size = ((dm->payload_alloc_size-12) / GPMF_EXT_PERFORMATTED_STREAMS) >> 2;
 		
 		ws->extrn_buffer_size[channel] = strm_buffer_long_size * 4; // bytes per extern stream buffer
 		
 		for(i=0; i<GPMF_EXT_PERFORMATTED_STREAMS; i++)
 		{
-			ws->extrn_buffer[channel][i] = buffer;
-			buffer += strm_buffer_long_size;
+			ws->extrn_buffer[channel][i] = extbuffer;
+			extbuffer += strm_buffer_long_size;
 		}
     }
 
@@ -535,7 +538,6 @@ static uint32_t IncreasingSortOnType(void *input_data, void *output_data, char s
 }
 
 
-#if SCAN_GPMF_FOR_STATE
 static uint32_t SeekEndGPMF(uint32_t *payload_buf, uint32_t alloc_size)
 {
 	uint32_t pos = 0;
@@ -568,9 +570,8 @@ static uint32_t SeekEndGPMF(uint32_t *payload_buf, uint32_t alloc_size)
 	
 	return 0;
 }
-#endif
 
-void AppendFormattedMetadata(device_metadata *dm, uint32_t *formatted, uint32_t bytelen, uint32_t flags, uint32_t sample_count, uint64_t microSecondTimeStamp)
+void AppendFormattedMetadata(device_metadata *dm, uint32_t *formatted, uint32_t bytelen, uint32_t flags, uint32_t sample_count, uint64_t TimeStamp)
 {
 	uint32_t count_msg[5];
 	uint32_t tag = formatted[0], *payload_ptr;
@@ -586,23 +587,30 @@ void AppendFormattedMetadata(device_metadata *dm, uint32_t *formatted, uint32_t 
 	if(!(flags & GPMF_FLAGS_LOCKED))  // Use this internal flags if called within a Lock()
 		Lock(&dm->device_lock);
 
-	if(microSecondTimeStamp != 0 && flags & GPMF_FLAGS_STORE_ALL_TIMESTAMPS)
+	if (flags & GPMF_FLAGS_GROUPED)
+		sample_count = 1;
+
+
+	if(TimeStamp != 0 && flags & GPMF_FLAGS_STORE_ALL_TIMESTAMPS)
 	{
 		uint32_t swap64timestamp[2];
 		uint64_t *ptr64 = (uint64_t *)&swap64timestamp[0];
 		uint32_t buf[5];
 		uint32_t stampflags = (flags & GPMF_FLAGS_LOCKED) | GPMF_FLAGS_DONT_COUNT;
 
-		*ptr64 = BYTESWAP64(microSecondTimeStamp);		
-	//	microSecondTimeStamp = 0;  // with this commented out it will store both jitter removed and raw timestamps.
+		*ptr64 = BYTESWAP64(TimeStamp);		
+	//	TimeStamp = 0;  // with this commented out it will store both jitter removed and raw timestamps.
 
-		buf[0] = GPMF_KEY_TIME_STAMPS;
-		buf[1] = MAKEID('J', 8, 0, 1);
-		buf[2] = swap64timestamp[0];
-		buf[3] = swap64timestamp[1];
-		buf[4] = GPMF_KEY_END;
-		
-		AppendFormattedMetadata(dm, buf, 16, stampflags, 1, 0); // Timing is Sticky, only one value per data stream, it is simpy updated if sent more than once.	
+		for (uint32_t i = 0; i < sample_count; i++)
+		{
+			buf[0] = GPMF_KEY_TIME_STAMPS;
+			buf[1] = MAKEID('J', 8, 0, 1);
+			buf[2] = swap64timestamp[0];
+			buf[3] = swap64timestamp[1];
+			buf[4] = GPMF_KEY_END;
+
+			AppendFormattedMetadata(dm, buf, 16, stampflags, 1, 0); // Timing is Sticky, only one value per data stream, it is simpy updated if sent more than once.	
+		}
 	}
 	
 again:
@@ -627,13 +635,95 @@ again:
 		dm->last_nonsticky_fourcc = tag;
 		dm->last_nonsticky_typesize = typesize;
 		
-		if (microSecondTimeStamp)
+		if (TimeStamp)
 		{
-			if (dm->totalTimeStampCount < MAX_TIMESTAMPS)
+			if (dm->payloadTimeStampCount >= MAX_TIMESTAMPS) // Compact the timestamp for more room
 			{
-				dm->microSecondTimeStamp[dm->totalTimeStampCount] = microSecondTimeStamp;
-				dm->totalTimeStampCount++;
+				uint32_t pos = 0, downsmp = 0;
+				while (dm->deltaTimeStamp[pos] > dm->deltaTimeStamp[pos + 1])
+					pos++, downsmp++;
+
+				do
+				{
+					for (; pos < ((MAX_TIMESTAMPS*3) >> 2);)
+					{
+						dm->deltaTimeStamp[downsmp] = dm->deltaTimeStamp[pos] + dm->deltaTimeStamp[pos + 1];
+						dm->sampleCount[downsmp] = dm->sampleCount[pos] + dm->sampleCount[pos + 1];
+						downsmp++;
+						pos += 2;
+					}
+					for (; pos < MAX_TIMESTAMPS; pos++)
+					{
+						dm->deltaTimeStamp[downsmp] = dm->deltaTimeStamp[pos];
+						dm->sampleCount[downsmp] = dm->sampleCount[pos];
+						downsmp++;
+					}
+					for (pos = downsmp; pos < MAX_TIMESTAMPS; pos++)
+					{
+						dm->deltaTimeStamp[pos] = 0;
+						dm->sampleCount[pos] = 0;
+					}
+					if (downsmp >= MAX_TIMESTAMPS)
+					{
+						pos = 0, downsmp = 0;
+					}
+				} while (downsmp == 0);
+				dm->payloadTimeStampCount = downsmp;
 			}
+			if(dm->payloadTimeStampCount == 0)
+			{
+#if MDA_DEBUG  // We were seeing invalid timestamps.
+				if(TimeStamp >= dm->lastTimeStamp)
+				{
+					if(dm->lastTimeStamp == 0 || TimeStamp < dm->lastTimeStamp + 2000000) // less then two seconds later
+						dm->firstTimeStamp = dm->lastTimeStamp = TimeStamp;
+					
+				}
+				else {
+					//TODO - does this happen?
+				}
+#else
+				dm->firstTimeStamp = dm->lastTimeStamp = TimeStamp;
+#endif
+			}
+			else
+			{
+#if MDA_DEBUG  // We were seeing invalid timestamps.
+				if(TimeStamp >= dm->lastTimeStamp)
+				{
+					if(dm->lastTimeStamp == 0 || TimeStamp < dm->lastTimeStamp + 2000000) // less then two seconds later
+					{
+						// likely normal working timestamps
+						dm->deltaTimeStamp[dm->payloadTimeStampCount-1] = (uint32_t)(TimeStamp - dm->lastTimeStamp);
+						dm->lastTimeStamp = TimeStamp;
+					}
+					else // Something bizarre is happening, large timestamps, why?
+					{
+						dm->deltaTimeStamp[dm->payloadTimeStampCount-1] = 1;
+						dm->lastTimeStamp++;
+					}
+				}
+				else // We should not have negative timestamps.
+				{
+					if(dm->payloadTimeStampCount >= 2) // if we can, just interpolate a valid timestamp
+					{
+						dm->lastTimeStamp += dm->deltaTimeStamp[dm->payloadTimeStampCount-2]-1;
+						dm->deltaTimeStamp[dm->payloadTimeStampCount-1] = dm->deltaTimeStamp[dm->payloadTimeStampCount-2]-1; //DANHACK
+					}
+					else // otherwise just increment
+					{
+						dm->deltaTimeStamp[dm->payloadTimeStampCount-1] = 1; //DANHACK
+						dm->lastTimeStamp++;
+					}
+				}
+#else
+				dm->deltaTimeStamp[dm->payloadTimeStampCount-1] = (uint32_t)(TimeStamp - dm->lastTimeStamp);
+				dm->lastTimeStamp = TimeStamp;
+#endif
+			}
+			dm->sampleCount[dm->payloadTimeStampCount] = (uint16_t)sample_count;
+			dm->payloadTimeStampCount++;
+
 		}
 	}
 
@@ -660,10 +750,10 @@ again:
 tryagain:
 		while((tag != *payload_ptr || flags & GPMF_FLAGS_GROUPED) && *payload_ptr != GPMF_KEY_END) 
 		{
-			uint32_t typesize = *(payload_ptr+1);
-			uint32_t offset = 2 + ((GPMF_DATA_SIZE(typesize))>>2);
+			uint32_t tsize = *(payload_ptr+1);
+			uint32_t offset = 2 + ((GPMF_DATA_SIZE(tsize))>>2);
 
-			curr_byte_pos += 8 + ((GPMF_DATA_SIZE(typesize)));
+			curr_byte_pos += 8 + ((GPMF_DATA_SIZE(tsize)));
 			payload_ptr += offset, curr_pos += offset;
 		}
 		if (tag == *payload_ptr) // found existing metadata of the same tag to append
@@ -672,10 +762,10 @@ tryagain:
 			
 			if (GPMF_SAMPLE_TYPE(currtypesize) == GPMF_TYPE_NEST)
 			{
-				uint32_t typesize = *(payload_ptr + 1);
-				uint32_t offset = 2 + ((GPMF_DATA_SIZE(typesize)) >> 2);
+				uint32_t tsize = *(payload_ptr + 1);
+				uint32_t offset = 2 + ((GPMF_DATA_SIZE(tsize)) >> 2);
 
-				curr_byte_pos += 8 + ((GPMF_DATA_SIZE(typesize)));
+				curr_byte_pos += 8 + ((GPMF_DATA_SIZE(tsize)));
 				payload_ptr += offset, curr_pos += offset;
 				goto tryagain;
 			}
@@ -849,7 +939,8 @@ tryagain:
 		// TODO extend the buffer size if is doesn't fit.
 	}
 
-	if (!(flags & GPMF_FLAGS_STICKY) && !(flags & GPMF_FLAGS_DONT_COUNT) && dm->channel != GPMF_CHANNEL_SETTINGS)
+	if (!(flags & GPMF_FLAGS_STICKY) && !(flags & GPMF_FLAGS_DONT_COUNT) && 
+		dm->channel != GPMF_CHANNEL_SETTINGS)
 	{
 		count_msg[0] = GPMF_KEY_TOTAL_SAMPLES;
 		count_msg[1] = GPMF_MAKE_TYPE_SIZE_COUNT('L', 4, 1);
@@ -916,7 +1007,14 @@ void GPMFWriteStreamReset(size_t dm_handle)
 		*dm->payload_aperiodic_buffer = 0;
 		
 		// clear timestamps
-		dm->totalTimeStampCount = 0;
+		dm->payloadTimeStampCount = 0;
+		for(uint32_t pos=0; pos<MAX_TIMESTAMPS; pos++)
+		{
+			dm->deltaTimeStamp[pos] = 0;
+			dm->sampleCount[pos] = 0;
+		}
+		dm->firstTimeStamp = 0;
+		dm->lastTimeStamp = 0;
 	    
 		if(dm->device_id == GPMF_DEVICE_ID_PREFORMATTED)
 	    {
@@ -1226,7 +1324,7 @@ uint32_t GPMFWriteStreamStoreStamped(    //Send RAW data to be formatted for the
   uint32_t sample_count,
   void *data, 
   uint32_t flags,			// 1- metadata is sticky, sent only once, but stored in every payload
-  uint64_t microSecondTimeStamp   // if zero, this is the same call as GPMFWriteStreamStore()
+  uint64_t TimeStamp   // if zero, this is the same call as GPMFWriteStreamStore()
 )
 {
 	uint32_t required_size = sample_count * sample_size + 12;
@@ -1236,7 +1334,7 @@ uint32_t GPMFWriteStreamStoreStamped(    //Send RAW data to be formatted for the
 
 	device_metadata *dm = (device_metadata *)dm_handle;
 
-	if (microSecondTimeStamp == 0 && flags & GPMF_FLAGS_ADD_TICK)
+	if (TimeStamp == 0 && flags & GPMF_FLAGS_ADD_TICK)
 	{
 		if (!(flags & GPMF_FLAGS_STICKY) && !(flags & GPMF_FLAGS_BIG_ENDIAN)) // non-sticky only -- first sample, and not sent from an external preformat (BigEndian) device
 		{
@@ -1247,13 +1345,16 @@ uint32_t GPMFWriteStreamStoreStamped(    //Send RAW data to be formatted for the
 					uint32_t buf[4];
 					GetTick(&tick);
 					dm->payload_tick = tick;
-
-					buf[0] = GPMF_KEY_TICK;
-					buf[1] = MAKEID('L', 4, 0, 1);
-					buf[2] = BYTESWAP32(tick);
-					buf[3] = GPMF_KEY_END;
-
-					AppendFormattedMetadata(dm, buf, 12, GPMF_FLAGS_STICKY, 1, 0); // Timing is Sticky, only one value per data stream, it is simpy updated if sent more than once.	
+						
+					if(TimeStamp == 0 && flags & GPMF_FLAGS_ADD_TICK)
+					{					
+						buf[0] = GPMF_KEY_TICK; 
+						buf[1] = MAKEID('L', 4, 0, 1);
+						buf[2] = BYTESWAP32(tick);
+						buf[3] = GPMF_KEY_END;
+						
+						AppendFormattedMetadata(dm, buf, 12, GPMF_FLAGS_STICKY, 1, 0); // Timing is Sticky, only one value per data stream, it is simpy updated if sent more than once.	
+					}
 				}
 			}
 		}
@@ -1293,7 +1394,13 @@ uint32_t GPMFWriteStreamStoreStamped(    //Send RAW data to be formatted for the
 		}
 
 		if(flags&GPMF_FLAGS_STICKY)
-		{
+		{	
+			if (tag == (uint32_t)STR2FOURCC("QUAN"))
+			{
+				dm->quantize = *((uint32_t *)data);
+				return GPMF_ERROR_OK;
+			}
+
 			if(dm->payload_sticky_curr_size+required_size > dm->payload_sticky_alloc_size) 
 				return GPMF_ERROR_MEMORY;
 		}
@@ -1362,7 +1469,7 @@ uint32_t GPMFWriteStreamStoreStamped(    //Send RAW data to be formatted for the
 					{
 						switch (endianSize)
 						{
-						case 2:		scratch_buf[len++] = BYTESWAP16(valptr[i]); break;
+						case 2:		scratch_buf[len++] = BYTESWAP2x16(valptr[i]); break;
 						case 4:		scratch_buf[len++] = BYTESWAP32(valptr[i]); break;
 						default:	scratch_buf[len++] = valptr[i]; break;
 						}
@@ -1407,8 +1514,8 @@ uint32_t GPMFWriteStreamStoreStamped(    //Send RAW data to be formatted for the
 									}
 									default:
 									{
-										int i;
-										for (i = 0; i < type_size; i++)
+										int ii;
+										for (ii = 0; ii < type_size; ii++)
 										{
 											*bsptr++ = *bvptr++;
 										}
@@ -1429,7 +1536,7 @@ uint32_t GPMFWriteStreamStoreStamped(    //Send RAW data to be formatted for the
 							}
 						}
 
-						if (dm->complex_type[type_position] != 0 || type_samplesleft > 0)
+						if (sample_count > 0 && (dm->complex_type[type_position] != 0 || type_samplesleft > 0))
 						{
 							return GPMF_ERROR_STRUCTURE;  // sample_size doesn't match the complex structure defined with typedef
 						}
@@ -1438,23 +1545,9 @@ uint32_t GPMFWriteStreamStoreStamped(    //Send RAW data to be formatted for the
 			}
 
 			blen += sample_count * sample_size;
-			AppendFormattedMetadata(dm, scratch_buf, blen, flags, sample_count, microSecondTimeStamp);
+			AppendFormattedMetadata(dm, scratch_buf, blen, flags, sample_count, TimeStamp);
 		
 		}
-		/*
-		if (!(flags&GPMF_FLAGS_STICKY))
-		{
-			GPMFWriteStreamStore(    //Send RAW data to be formatted for the MP4 text track
-				dm_handle,
-				GPMF_KEY_TOTAL_SAMPLES,
-				GPMF_TYPE_UNSIGNED_LONG,
-				4,
-				1,
-				&sample_count,
-				0.0,
-				GPMF_FLAGS_STICKY_ACCUMULATE	
-				);				
-		}*/
 	}
 	else
 		return GPMF_ERROR_DEVICE;
@@ -1487,7 +1580,7 @@ uint32_t GPMFWriteStreamAperiodicBegin(size_t dm_handle, uint32_t tag)
 
 	ret = GPMFWriteStreamStore(
 		dm_handle,
-		MAKEID('T', 'I', 'C', 'K'),
+		GPMF_KEY_TICK,
 		'L',
 		4,
 		1,
@@ -1498,7 +1591,7 @@ uint32_t GPMFWriteStreamAperiodicBegin(size_t dm_handle, uint32_t tag)
 	
 	ret = GPMFWriteStreamStore(
 		dm_handle,
-		MAKEID('T', 'O', 'C', 'K'),
+		GPMF_KEY_TOCK,
 		'L',
 		4,
 		1,
@@ -1559,7 +1652,7 @@ uint32_t GPMFWriteStreamAperiodicEnd(size_t dm_handle, uint32_t tag)
 			1,
 			dm->payload_aperiodic_curr_size,
 			data,
-			GPMF_FLAGS_LOCKED | GPMF_FLAGS_BIG_ENDIAN | GPMF_FLAGS_DONT_COUNT);
+			(uint32_t)(GPMF_FLAGS_LOCKED | GPMF_FLAGS_BIG_ENDIAN | GPMF_FLAGS_DONT_COUNT));
 
 		// reset the CV Nest
 		dm->payload_aperiodic_curr_size = 0;
@@ -1609,7 +1702,7 @@ void GPMFWriteServiceClose(size_t ws_handle)
 
 
 
-uint32_t GPMFWriteEstimateBufferSize(size_t ws_handle, uint32_t channel, uint32_t payloadscale) // how much data is currently needing to be readout. 
+uint32_t GPMFWriteEstimateBufferSize(size_t ws_handle, uint32_t channel, uint32_t payloadscale, uint64_t latestTimeStamp) // how much data is currently needing to be readout. 
 {
 	GPMFWriterWorkspace *ws = (GPMFWriterWorkspace *)ws_handle;
 	uint32_t estimatesize = 0;
@@ -1623,130 +1716,142 @@ uint32_t GPMFWriteEstimateBufferSize(size_t ws_handle, uint32_t channel, uint32_
 	if (payloadscale)
 		session_scale = payloadscale;
 
-	if (ws)
+	if (ws == NULL) return 0;
+
+	Lock(&ws->metadata_device_list[channel]);	//Prevent device list changes while extracting data from the current device list
+
+	dm = ws->metadata_devices[channel];
+
+	// Copy in all the metadata, formatted into the new buffer
+	while (dm)
 	{
+		Lock(&dm->device_lock); // Get data and return, minimal processing within the lock
 
-		Lock(&ws->metadata_device_list[channel]);	//Prevent device list changes while extracting data from the current device list
+		session_scale_count = dm->session_scale_count;
 
-		dm = ws->metadata_devices[channel];
-
-		// Copy in all the metadata, formatted into the new buffer
-		while (dm)
+		//if(dm->payload_curr_size > 0) // Store information of all connected devices even if they have sent no data
 		{
-			Lock(&dm->device_lock); // Get data and return, minimal processing within the lock
+			size_t namelen;
+			uint32_t namlen4byte;
 
-			session_scale_count = dm->session_scale_count;
-
-			//if(dm->payload_curr_size > 0) // Store information of all connected devices even if they have sent no data
+			if (dm->device_id != last_deviceID) // Store device name and id and the begin of the data as a device
 			{
-				size_t namelen;
-				uint32_t namlen4byte;
+				last_deviceID = dm->device_id;
 
-				if (dm->device_id != last_deviceID) // Store device name and id and the begin of the data as a device
+				totalsize += devicesizebytes;
+				devicesizebytes = 0;
+
+				// New device for the new device
+				totalsize += 8;
+
+				//New Device ID -- GoPro source have a known ID
+				devicesizebytes += 12;
+
+				//String name for the device
+				namelen = strlen(dm->device_name);
+				namlen4byte = (namelen + 3) & ~3;
+				devicesizebytes += 8 + namlen4byte;
+			}
+
+
+			// Wrap telemetry in a New Stream (or channel) if the payload has sticky metadata
+			if (dm->payload_sticky_curr_size > 0)
+			{
+				devicesizebytes += 8;
+				//Sticky Metadata for each stream
+				devicesizebytes += ((dm->payload_sticky_curr_size + 3)&~3);
+			}
+
+
+			if (dm->payload_curr_size > 0)
+			{
+				uint32_t *src_lptr = (uint32_t *)dm->payload_buffer;
+
+				//copy the preformatted device metadata into the output buffer
+				if (session_scale == 0)
 				{
-					last_deviceID = dm->device_id;
-
-					totalsize += devicesizebytes;
-					devicesizebytes = 0;
-
-					// New device for the new device
-					totalsize += 8;
-
-					//New Device ID -- GoPro source have a known ID
-					devicesizebytes += 12;
-
-					//String name for the device
-					namelen = strlen(dm->device_name);
-					namlen4byte = (namelen + 3) & ~3;
-					devicesizebytes += 8 + namlen4byte;
-				}
-
-
-				// Wrap telemetry in a New Stream (or channel) if the payload has sticky metadata
-				if (dm->payload_sticky_curr_size > 0)
-				{
-					devicesizebytes += 8;
-					//Sticky Metadata for each stream
-					devicesizebytes += ((dm->payload_sticky_curr_size + 3)&~3);
-				}
-
-
-				if (dm->payload_curr_size > 0)
-				{
-					uint32_t *src_lptr = (uint32_t *)dm->payload_buffer;
-
-					//copy the preformatted device metadata into the output buffer
-					if (session_scale == 0)
-					{
 #if SCAN_GPMF_FOR_STATE
-						uint32_t payload_curr_size = SeekEndGPMF(src_lptr, dm->payload_alloc_size);
+					uint32_t payload_curr_size = SeekEndGPMF(src_lptr, dm->payload_alloc_size);
 #else
-						uint32_t payload_curr_size = dm->payload_curr_size;
+					uint32_t payload_curr_size = dm->payload_curr_size;
 #endif
-						devicesizebytes += ((payload_curr_size + 3)&~3);
-					}
+					uint32_t curr_size = ((payload_curr_size + 3)&~3);
+
+					if(LARGESTTIMESTAMP == latestTimeStamp)
+						devicesizebytes += curr_size;
 					else
 					{
-						uint32_t last_tag = 0;
-						uint32_t tag = src_lptr[0];
-						do
+						if (latestTimeStamp >= dm->lastTimeStamp)
+							devicesizebytes += curr_size;
+						else if (latestTimeStamp > dm->firstTimeStamp)
 						{
-							uint32_t samples = GPMF_SAMPLES(src_lptr[1]);
-							if ((samples >= (session_scale * 2) && session_scale) || GPMF_SAMPLE_TYPE(src_lptr[1]) == GPMF_TYPE_NEST || last_tag == tag) //DAN20160609 Scale data that is twice or more the the target sample rate.
+							float fraction = (float)(latestTimeStamp - dm->firstTimeStamp) / (float)(dm->lastTimeStamp - dm->firstTimeStamp);
+							devicesizebytes += (uint32_t)(fraction * (float)curr_size);
+						}
+					}
+				}
+				else
+				{
+					uint32_t last_tag = 0;
+					uint32_t tag = src_lptr[0];
+					do
+					{
+						uint32_t samples = GPMF_SAMPLES(src_lptr[1]);
+						if ((samples >= (session_scale * 2) && session_scale) || GPMF_SAMPLE_TYPE(src_lptr[1]) == GPMF_TYPE_NEST || last_tag == tag) //DAN20160609 Scale data that is twice or more the the target sample rate.
+						{
+							if (GPMF_SAMPLE_TYPE(src_lptr[1]) != GPMF_TYPE_NEST && last_tag != tag)
 							{
-								if (GPMF_SAMPLE_TYPE(src_lptr[1]) != GPMF_TYPE_NEST && last_tag != tag)
+								uint32_t newscale = (samples + (session_scale / 2)) / session_scale;
+								int samples_out = 0;
+								int sample_size = GPMF_SAMPLE_SIZE(src_lptr[1]);
+								src_lptr += (8 + GPMF_DATA_SIZE(src_lptr[1])) >> 2;
+
+								if (newscale <= 1) newscale = 2;				//DAN20160609 support the new Session scaling
+
+								while (samples--)
 								{
-									uint32_t newscale = (samples + (session_scale / 2)) / session_scale;
-									int samples_out = 0;
-									int sample_size = GPMF_SAMPLE_SIZE(src_lptr[1]);
-									src_lptr += (8 + GPMF_DATA_SIZE(src_lptr[1])) >> 2;
-
-									if (newscale <= 1) newscale = 2;				//DAN20160609 support the new Session scaling
-
-									while (samples--)
+									if (++session_scale_count >= newscale)  //DAN20160609 support the new Session scaling
 									{
-										if (++session_scale_count >= newscale)  //DAN20160609 support the new Session scaling
-										{
-											session_scale_count = 0;
-											samples_out++;
-										}
+										session_scale_count = 0;
+										samples_out++;
 									}
+								}
 
-									devicesizebytes += (8 + sample_size * samples_out + 3) & ~3;
-								}
-								else
-								{
-									src_lptr += (8 + GPMF_DATA_SIZE(src_lptr[1])) >> 2;
-								}
+								devicesizebytes += (8 + sample_size * samples_out + 3) & ~3;
 							}
 							else
 							{
-								uint32_t datasize = GPMF_DATA_SIZE(src_lptr[1]);
-								devicesizebytes += datasize + 8;
-								src_lptr += (datasize + 8) >> 2;
+								src_lptr += (8 + GPMF_DATA_SIZE(src_lptr[1])) >> 2;
 							}
+						}
+						else
+						{
+							uint32_t datasize = GPMF_DATA_SIZE(src_lptr[1]);
+							devicesizebytes += datasize + 8;
+							src_lptr += (datasize + 8) >> 2;
+						}
 
-							last_tag = tag;
-							tag = src_lptr[0];
-						} while (GPMF_VALID_FOURCC(src_lptr[0]));
-					}
+						last_tag = tag;
+						tag = src_lptr[0];
+					} while (GPMF_VALID_FOURCC(src_lptr[0]));
 				}
 			}
-
-			dmnext = dm->next;
-			Unlock(&dm->device_lock);
-			dm = dmnext;
 		}
 
-		Unlock(&ws->metadata_device_list[channel]);
-
-		totalsize += devicesizebytes;
-		estimatesize = totalsize;
-
-		estimatesize *= 11;
-		estimatesize /= 10; //Add 10% just in case extra samples arrive between calls
-		estimatesize &= ~0x3;
+		dmnext = dm->next;
+		Unlock(&dm->device_lock);
+		dm = dmnext;
 	}
+
+	Unlock(&ws->metadata_device_list[channel]);
+
+	totalsize += devicesizebytes;
+	estimatesize = totalsize;
+
+	estimatesize *= 11;
+	estimatesize /= 10; //Add 10% just in case extra samples arrive between calls
+	estimatesize &= ~0x3;
+
 	return estimatesize;
 }
 
@@ -1791,12 +1896,419 @@ uint32_t GPMFWriteIsValidGPMF(uint32_t *buffer, uint32_t size, uint32_t recurse)
 }
 
 
-uint32_t GPMFWriteGetPayloadAndSession(size_t ws_handle, uint32_t channel, uint32_t *buffer, uint32_t buffer_size,
-								  uint32_t **payload, uint32_t *payloadsize,
-								  uint32_t **session, uint32_t *sessionsize, int session_reduction)
+
+void GPMF_CompressedPutWord(BITSTREAM *stream, BITSTREAM_WORD_TYPE word)
+{
+	const int nWordsPerLong = sizeof(BITSTREAM_WORD_TYPE) / sizeof(uint8_t);
+	BITSTREAM_WORD_TYPE *lpCurrentWord = (BITSTREAM_WORD_TYPE *)(stream->lpCurrentWord);
+	int wordsUsed = stream->wordsUsed + nWordsPerLong;
+
+	// Check that there is room in the block for the int32_t word
+	assert(wordsUsed <= stream->dwBlockLength);
+	if (wordsUsed <= stream->dwBlockLength)
+	{
+		*(lpCurrentWord++) = BYTESWAP16(word);
+
+		stream->lpCurrentWord = (uint8_t *)lpCurrentWord;
+		stream->wordsUsed = wordsUsed;
+	}
+	else
+	{
+		stream->error = BITSTREAM_ERROR_OVERFLOW;
+	}
+}
+
+// Write bits to a compressed bitstream
+void GPMF_CompressedPutBits(BITSTREAM *stream, BITSTREAM_WORD_TYPE wBits, int nBits)
+{
+	BITSTREAM_WORD_TYPE  wBuffer;
+	BITSTREAM_WORD_TYPE bitsFree;
+
+	// Move the current word into a int32_t buffer
+	wBuffer = stream->wBuffer;
+
+	// Number of bits remaining in the current word
+	bitsFree = stream->bitsFree;
+
+	// Will the bits fit in the int32_t buffer?
+	if (bitsFree == BITSTREAM_WORD_SIZE) {
+		wBuffer = wBits & BITMASK(nBits);
+		bitsFree -= (BITSTREAM_WORD_TYPE)nBits;
+	}
+	else if (nBits <= bitsFree) {
+		wBuffer <<= nBits;
+		wBuffer |= (wBits & BITMASK(nBits));
+		bitsFree -= (BITSTREAM_WORD_TYPE)nBits;
+	}
+	else {
+		// Fill the buffer with as many bits as will fit
+		wBuffer <<= bitsFree;
+		nBits -= bitsFree;
+
+		// Should have some bits remaining
+		assert(nBits > 0);
+
+		// Insert as many bits as will fit into the buffer
+		wBuffer |= (wBits >> nBits) & BITMASK(bitsFree);
+
+		// Insert all of the bytes in the buffer into the bitstream
+		GPMF_CompressedPutWord(stream, wBuffer);
+
+		wBuffer = wBits & BITMASK(nBits);
+		bitsFree = BITSTREAM_WORD_SIZE - (BITSTREAM_WORD_TYPE)nBits;
+	}
+
+	// Save the new current word and bit count in the stream
+	stream->wBuffer = wBuffer;
+	stream->bitsFree = bitsFree;
+}
+
+
+
+
+static void GPMF_CompressedFlushStream(BITSTREAM *stream)
+{
+	int bitsFree = stream->bitsFree;
+
+	// Does the buffer contain any data?
+	if (bitsFree < BITSTREAM_WORD_SIZE)
+	{
+		BITSTREAM_WORD_TYPE wBuffer = stream->wBuffer;
+
+		// Fill the rest of the buffer with zeros
+		wBuffer <<= bitsFree;
+
+		// Write the buffer to the output
+		GPMF_CompressedPutWord(stream, wBuffer);
+
+		// Indicate that the bitstream buffer is empty
+		stream->bitsFree = BITSTREAM_WORD_SIZE;
+		stream->wBuffer = 0;
+	}
+}
+
+
+BITSTREAM_WORD_TYPE GPMF_CompressedPutCode(BITSTREAM *stream, int code)
+{
+	BITSTREAM_WORD_TYPE numBits, bits;
+	numBits = enccontrolcodestable.entries[code].size;
+	bits = enccontrolcodestable.entries[code].bits;
+
+	GPMF_CompressedPutBits(stream, bits, numBits);
+
+	return numBits;
+}
+
+
+int GPMF_CompressedZeroRun(BITSTREAM *stream, int zeros)
+{
+	uint32_t totalBits = 0;
+	BITSTREAM_WORD_TYPE numBits = 0, bits;
+	int i = enczerorunstable.length - 1;
+
+	while (i >= 0 && zeros > 0)
+	{
+		if (enczerorunstable.entries[i].count > zeros)
+		{
+			i--;
+		}
+		else
+		{
+			numBits = enczerorunstable.entries[i].size;
+			bits = enczerorunstable.entries[i].bits;
+			zeros -= enczerorunstable.entries[i].count;
+
+			GPMF_CompressedPutBits(stream, bits, numBits);
+			totalBits += numBits;
+		}
+	}
+
+	// zeros have code '0'
+	GPMF_CompressedPutBits(stream, 0, zeros);
+	totalBits += zeros;
+
+	return totalBits;
+}
+
+int GPMF_CompressedPutValue(BITSTREAM *stream, int delta)
+{
+	BITSTREAM_WORD_TYPE numBits = 0, bits;
+	int mag = abs(delta);
+
+	if (mag < enchuftable.length)
+	{
+		numBits = enchuftable.entries[mag].size;
+		bits = enchuftable.entries[mag].bits;
+		if (mag) {
+			bits <<= 1;
+			if (delta < 0) bits |= 1; //add sign bit
+			numBits++; //sign bit.
+		}
+
+		GPMF_CompressedPutBits(stream, bits, numBits);
+	}
+	else
+	{
+		numBits += GPMF_CompressedPutCode(stream, HUFF_ESC_CODE_ENTRY);
+		GPMF_CompressedPutBits(stream, (BITSTREAM_WORD_TYPE)delta, stream->bits_per_src_word); numBits += stream->bits_per_src_word;
+	}
+
+	return numBits;
+}
+
+
+// Initialize the bitstream
+void GPMF_InitCompressedBitstream(BITSTREAM *stream, uint8_t *buffer, uint32_t bufferLength, uint32_t bits_per_src_word)
+{
+	// Initialize the block of words
+	stream->dwBlockLength = bufferLength;
+	stream->lpCurrentWord = buffer;
+	stream->wordsUsed = 0;
+
+	// Initialize the current bit buffer
+	stream->bitsFree = BITSTREAM_WORD_SIZE;
+	stream->wBuffer = 0;
+	stream->error = 0;
+	stream->bits_per_src_word = (uint16_t)bits_per_src_word;
+}
+
+
+#if HUFF_STATS
+uint32_t sourcesize = 0;
+uint32_t storedsize = 0;
+#endif
+
+uint32_t GPMFCompress(uint32_t* dst_gpmf, uint32_t *src_gpmf, uint32_t payloadAddition, uint32_t quantize)
+{
+	BITSTREAM bstream;
+	uint32_t returnpayloadsize = 0;
+	uint32_t typesizerepeat = src_gpmf[1];
+	uint8_t *bptr = (uint8_t *)src_gpmf;
+	uint8_t type = bptr[4];
+	//uint8_t size = bptr[5];
+	uint16_t repeat = (bptr[6] << 8) | bptr[7];
+	uint32_t quantHi = quantize;
+	uint32_t quantLo = quantize;
+
+	//[] = 32-bit, {} - 16-bit, unisgned or unsigned depending on the uncompressed type.
+	//[FOURCC]['#'sizerepeat][uncompressed typeSizeRepeat]{quantization}{first value}... delta encoded huffman ...
+
+	dst_gpmf[0] = src_gpmf[0];         returnpayloadsize += 4;
+	dst_gpmf[1] = 0;/*fill at end*/    returnpayloadsize += 4;
+	dst_gpmf[2] = typesizerepeat;      returnpayloadsize += 4;
+
+	int bytesize = GPMFWriteTypeSize(type);
+	int channels = GPMF_SAMPLE_SIZE(typesizerepeat) / bytesize;
+
+	switch (type)
+	{
+	case GPMF_TYPE_SIGNED_LONG:
+	case GPMF_TYPE_UNSIGNED_LONG:
+		channels *= 2, bytesize = 2; // treat LONGs as two channels of shorts
+		quantHi = 1;
+	case GPMF_TYPE_SIGNED_BYTE:
+	case GPMF_TYPE_UNSIGNED_BYTE:
+	case GPMF_TYPE_SIGNED_SHORT:
+	case GPMF_TYPE_UNSIGNED_SHORT:
+	{
+		uint32_t i;
+		int signed_type = 1; // not signed
+		int chn;
+		int8_t *dbyte = (int8_t *)&dst_gpmf[3];
+		uint8_t *dByte = (uint8_t *)dbyte;
+		//int16_t *dshort = (int16_t *)dbyte;
+		uint16_t *dShort = (uint16_t *)dbyte;
+		int8_t *sbyte = (int8_t *)&src_gpmf[2];
+		uint8_t *sByte = (uint8_t *)sbyte;
+		int16_t *sshort = (int16_t *)sbyte;
+		uint16_t *sShort = (uint16_t *)sbyte;
+		int pos = 0;
+
+		channels = GPMF_SAMPLE_SIZE(typesizerepeat) / bytesize;
+
+		if (type == GPMF_TYPE_SIGNED_SHORT || type == GPMF_TYPE_SIGNED_BYTE || type == GPMF_TYPE_SIGNED_LONG)
+			signed_type = -1; //signed
+
+		memcpy(dbyte, sbyte, bytesize*channels);  // store the first full sample as is.
+		pos += channels;
+		returnpayloadsize += bytesize*channels;
+
+		for (chn = 0; chn < channels; chn++)
+		{
+			uint32_t quant = quantHi, bufsize = payloadAddition - returnpayloadsize;
+			uint32_t totalbits = 0, zerorun = 0;
+
+			if (chn & 1) quant = quantLo; // Hack for encoding quantized 32-bit data with 16-bits.
+
+			if (bytesize == 2)
+			{
+				dShort[pos] = BYTESWAP16(quant); pos++,
+					GPMF_InitCompressedBitstream(&bstream, (uint8_t*)&dShort[pos], bufsize, bytesize * 8);
+			}
+			else
+			{
+				dByte[pos] = (uint8_t)quant; pos++;
+				pos = ((pos + 1) & ~1); //16-bit aligned compressed data
+				GPMF_InitCompressedBitstream(&bstream, &dByte[pos], bufsize, bytesize * 8);
+			}
+
+
+			returnpayloadsize += 4;
+
+			for (i = 1; i < repeat; i++)
+			{
+				int delta = 0;
+				switch (bytesize*signed_type)
+				{
+				default:
+				case -2: delta = ((int16_t)BYTESWAP16(sshort[i*channels + chn]) / (int16_t)quant) - ((int16_t)BYTESWAP16(sshort[(i - 1)*channels + chn]) / (int16_t)quant); break;
+				case -1: delta = ((int)(sbyte[i*channels + chn]) / (int)quant) - ((int)(sbyte[(i - 1)*channels + chn]) / (int)quant); break;
+				case 1: delta = ((int)(sByte[i*channels + chn]) / (int)quant) - ((int)(sByte[(i - 1)*channels + chn]) / (int)quant); break;
+				case 2: delta = ((int)BYTESWAP16(sShort[i*channels + chn]) / (int)quant) - ((int)BYTESWAP16(sShort[(i - 1)*channels + chn]) / (int)quant); break;
+				}
+
+				if (delta == 0) {
+					zerorun++;
+					continue;
+				}
+
+				if (zerorun)
+				{
+					totalbits += GPMF_CompressedZeroRun(&bstream, zerorun);
+					zerorun = 0;
+				}
+
+				totalbits += GPMF_CompressedPutValue(&bstream, delta);
+
+				//make sure compressed is not larger than uncompressed.
+				if (totalbits + 256 > bufsize * 8) // in bits
+				{
+					//too big, just store uncompresssed.
+					memcpy(dst_gpmf, src_gpmf, payloadAddition);
+#if HUFF_STATS
+					sourcesize += payloadAddition;
+					storedsize += payloadAddition;
+#endif
+					return payloadAddition;
+				}
+			}
+
+			totalbits += GPMF_CompressedPutCode(&bstream, HUFF_END_CODE_ENTRY);
+
+			GPMF_CompressedFlushStream(&bstream);
+
+			int bytesadded = ((totalbits + 7) / 8);
+			int lastsize = returnpayloadsize;
+			returnpayloadsize += bytesadded;
+			returnpayloadsize = ((returnpayloadsize + 1) & ~1); //16-bit aligned with a compressed channel
+			pos += ((returnpayloadsize - lastsize) >> (bytesize - 1));
+		}
+		break;
+	}
+	default: // do not compress other types of data
+		memcpy(dst_gpmf, src_gpmf, payloadAddition);
+		return payloadAddition;
+	}
+
+
+	returnpayloadsize = ((returnpayloadsize + 3) >> 2) << 2; //32-bit aligned channel
+
+	if (returnpayloadsize > payloadAddition) // double check
+	{
+		memcpy(dst_gpmf, src_gpmf, payloadAddition);
+		returnpayloadsize = payloadAddition;
+	}
+	else
+	{
+		uint32_t typesizerepeat_compressed;
+
+		typesizerepeat_compressed = GPMF_MAKE_TYPE_SIZE_COUNT('#', bytesize, (returnpayloadsize - 8) / bytesize);
+		dst_gpmf[1] = typesizerepeat_compressed;
+	}
+
+#if HUFF_STATS
+	sourcesize += payloadAddition;
+	storedsize += returnpayloadsize;
+#endif
+
+	return returnpayloadsize;
+}
+
+
+
+static uint32_t AreSamplesGrouped(uint32_t *srcPayload, uint32_t *currentTotalSampleBytes)
+{
+	uint32_t grouped = 0;
+	uint32_t currentTag = srcPayload[0];
+
+	if (currentTag)
+	{
+		uint32_t *src_lptr = srcPayload;
+		uint32_t sampleDatasize = GPMF_DATA_SIZE(src_lptr[1]) >> 2;
+		uint32_t nextTag = src_lptr[2 + sampleDatasize];
+		uint32_t *next_lptr = &src_lptr[2 + sampleDatasize];
+
+		while (nextTag == currentTag) // Grouped data link FACE, HUES, SCEN
+		{
+			*currentTotalSampleBytes += 8 + GPMF_DATA_SIZE(next_lptr[1]);
+			sampleDatasize = GPMF_DATA_SIZE(next_lptr[1]) >> 2;
+			nextTag = next_lptr[2 + sampleDatasize];
+			next_lptr = &next_lptr[2 + sampleDatasize];
+			grouped++;
+		}
+
+		if (grouped)
+		{
+			grouped++;
+			//currentSamples = grouped;	//As each group sample is one time slot, 
+			//							//FACEs in one frame, only the separate groups are counted as samples
+		}
+	}
+
+	return grouped;
+}
+
+
+static uint32_t DataSizeForSamples(uint32_t *srcPayload, uint32_t samples2store, uint32_t grouped)
+{
+	uint32_t dataSize = 0;
+
+	if (grouped)
+	{
+		uint32_t i;
+		uint32_t *sample_group = srcPayload;
+
+		//recompute the size for samples2store grouped samples.
+		for (i = 0; i < samples2store; i++)
+		{
+			uint32_t groupbytes = GPMF_DATA_SIZE(sample_group[1]);
+			dataSize += 8 + groupbytes;
+			sample_group += (8 + groupbytes) >> 2;
+		}
+		//remainingSize = currentTotalSampleBytes - dataSize;
+		//remainingOffset = dataSize;
+	}
+	else
+	{
+
+		uint32_t sampleSize = GPMF_SAMPLE_SIZE(srcPayload[1]);
+
+		dataSize = 8 + sampleSize*samples2store;
+		//remainingSize = ((sampleSize * remainingSamples + 3) & ~3);
+		//remainingOffset = sampleSize * remainingSamples;
+	}
+
+	return dataSize;
+}
+
+
+uint32_t GPMFWriteGetPayloadAndSession(	size_t ws_handle, uint32_t channel, uint32_t *buffer, uint32_t buffer_size,
+										uint32_t **payload, uint32_t *payloadsize,
+										uint32_t **session, uint32_t *sessionsize, int session_reduction,
+										uint64_t latestTimeStamp)
 {
 	uint32_t *newpayload = NULL;
-	uint32_t estimatesize = 0,i;
+	uint32_t estimatesize = 0,j;
 
 	device_metadata *dm, *dmnext;
 	GPMFWriterWorkspace *ws = (GPMFWriterWorkspace *)ws_handle;
@@ -1804,9 +2316,9 @@ uint32_t GPMFWriteGetPayloadAndSession(size_t ws_handle, uint32_t channel, uint3
 	if (ws == NULL) return GPMF_ERROR_MEMORY;
 
 	if (payload)
-		estimatesize = GPMFWriteEstimateBufferSize(ws_handle, channel, 0);
+		estimatesize = GPMFWriteEstimateBufferSize(ws_handle, channel, 0, latestTimeStamp);
 	if (session)
-		estimatesize += GPMFWriteEstimateBufferSize(ws_handle, channel, session_reduction);
+		estimatesize += GPMFWriteEstimateBufferSize(ws_handle, channel, session_reduction, latestTimeStamp);
 
 	if(buffer_size < estimatesize)
 	{
@@ -1829,13 +2341,13 @@ uint32_t GPMFWriteGetPayloadAndSession(size_t ws_handle, uint32_t channel, uint3
 	
 	newpayload = (uint32_t *)buffer;
 
-	for(i=0; i<2; i++)
+	for(j=0; j<2; j++)
 	{
 		uint32_t totalsize = 0;
 		int freebuffers = 0;
 		uint32_t session_scale = 0;
 
-		switch (i)
+		switch (j)
 		{
 		case 0: // MP4 payload
 			if(payload == NULL)
@@ -1867,13 +2379,27 @@ uint32_t GPMFWriteGetPayloadAndSession(size_t ws_handle, uint32_t channel, uint3
 				Lock(&dm->device_lock); // Get data and return, minimal processing within the lock
 				//if(dm->payload_curr_size > 0) // Store information of all connected devices even if they have sent no data
 				{
+					FLOAT_PRECISION slope = 0.0, intercept = 0.0;
+ 					uint32_t samples2store = 0x0fffffff;
 					uint32_t streamsizebytes = 0, *laststreamsizeptr = NULL;
 					size_t namelen;
 					uint32_t namlen4byte;
+					uint32_t grouped = 0;
+					uint32_t didRegression = 1;
+					uint64_t next_first_ts = dm->firstTimeStamp;
+					uint32_t ts_pos = 0;
+
+					uint32_t *src_lptr = (uint32_t *)dm->payload_buffer;
+					uint8_t *src_bptr = (uint8_t *)dm->payload_buffer;
+					uint32_t currentSamples = GPMF_SAMPLES(src_lptr[1]);
+					uint32_t currentTotalSampleBytes = 8 + GPMF_DATA_SIZE(src_lptr[1]);
+
+					grouped = AreSamplesGrouped(src_lptr, &currentTotalSampleBytes);
+					if (grouped)
+						currentSamples = grouped;
 
 					if(dm->device_id != last_deviceID && dm->device_id != GPMF_DEVICE_ID_PREFORMATTED) // Store device name and id and the begin of the data as a device
 					{
-					//	uint32_t *src_lptr = (uint32_t *)dm->payload_buffer;
 						last_deviceID = dm->device_id;
 
 						if(lastdevicesizeptr) //write the size field for the end of the last device
@@ -1976,7 +2502,7 @@ uint32_t GPMFWriteGetPayloadAndSession(size_t ws_handle, uint32_t channel, uint3
 								buf[2] = BYTESWAP32(1);
 								buf[3] = GPMF_KEY_END;
 
-								AppendFormattedMetadata(dm, buf, 12, GPMF_FLAGS_STICKY_ACCUMULATE|GPMF_FLAGS_LOCKED, 1, 0); // Timing is Sticky, only one value per data stream, it is simpy updated if sent more than once.
+								AppendFormattedMetadata(dm, buf, 12, (uint32_t)GPMF_FLAGS_STICKY_ACCUMULATE|GPMF_FLAGS_LOCKED, 1, 0); // Timing is Sticky, only one value per data stream, it is simpy updated if sent more than once.
 							}
 						}						
 					} 
@@ -1990,53 +2516,130 @@ uint32_t GPMFWriteGetPayloadAndSession(size_t ws_handle, uint32_t channel, uint3
 						laststreamsizeptr = ptr;  *ptr++ = 0;		// device size to be calculated and updates at the end. 
 						devicesizebytes += 8; 
 						
-						if(dm->totalTimeStampCount != 0)
+						if (dm->payloadTimeStampCount != 0)
 						{
 							uint32_t swap64timestamp[2];
 							uint64_t *ptr64 = (uint64_t *)&swap64timestamp[0];
 
-							if(dm->totalTimeStampCount > 5)  // remove jitter if we have enough timestamps
+							if (dm->payloadTimeStampCount > 5)  // reduce sampling jitter if we have enough timestamps, if there is not jitter the timestamps are preserved.
 							{
 								uint32_t sample;
-								uint64_t timestamp;
 
-								double slope, intercept, top = 0.0, bot = 0.0, meanX = 0, meanY = 0;
+								// Compute the linear regression
+								FLOAT_PRECISION top = 0.0, bot = 0.0, meanX = 0, meanY = 0;
 
-								for (sample = 0; sample < dm->totalTimeStampCount; sample++)
+								uint64_t ts = dm->firstTimeStamp;
+								int32_t smps = 0;
+								uint32_t uniformStep = 0;
+
+								for (sample = 1; sample < dm->payloadTimeStampCount-1; sample++)
 								{
-									meanY += (double)dm->microSecondTimeStamp[sample];
-									meanX += (double)sample;
+									if((dm->deltaTimeStamp[sample]&~3) == ((dm->deltaTimeStamp[sample-1] * dm->sampleCount[sample] / dm->sampleCount[sample-1])&~3))
+										uniformStep++;
 								}
-								meanY /= (double)dm->totalTimeStampCount;
-								meanX /= (double)dm->totalTimeStampCount;
-
-								for (sample = 0; sample < dm->totalTimeStampCount; sample++)
-								{
-									top += ((double)sample - meanX)*((double)dm->microSecondTimeStamp[sample] - meanY);
-									bot += ((double)sample - meanX)*((double)sample - meanX);
-								}
-								slope = top / bot;
-								intercept = meanY - slope*meanX;
 								
-								timestamp = (uint64_t)intercept;
-								*ptr64 = BYTESWAP64(timestamp);
+								if (uniformStep < (dm->payloadTimeStampCount>>1)) // erratic timeStamps, linear regress them
+								{
+									for (sample = 0; sample < dm->payloadTimeStampCount; sample++)
+									{
+										meanY += (FLOAT_PRECISION)ts;
+										meanX += (FLOAT_PRECISION)smps;
+
+										ts += dm->deltaTimeStamp[sample];
+										smps += dm->sampleCount[sample];
+									}
+
+									meanY /= (FLOAT_PRECISION)dm->payloadTimeStampCount;
+									meanX /= (FLOAT_PRECISION)dm->payloadTimeStampCount;
+
+									ts = dm->firstTimeStamp;
+									smps = 0;
+									for (sample = 0; sample < dm->payloadTimeStampCount; sample++)
+									{
+										top += ((FLOAT_PRECISION)smps - meanX)*((FLOAT_PRECISION)ts - meanY);
+										bot += ((FLOAT_PRECISION)smps - meanX)*((FLOAT_PRECISION)smps - meanX);
+
+										ts += dm->deltaTimeStamp[sample];
+										smps += dm->sampleCount[sample];
+									}
+									slope = top / bot;
+									intercept = meanY - slope * meanX;
+
+									uint64_t computedTimeStamp = (uint64_t)(intercept + 0.5); // compute more accurate timestamp
+
+									if (computedTimeStamp < dm->lastTimeStamp) // i.e. not crazy
+									{
+										dm->firstTimeStamp = computedTimeStamp;
+									}
+									else
+									{
+										didRegression = 0;
+									}
+								}
+								else
+								{
+									didRegression = 0;
+								}
 							}
-							else
-							{
-								*ptr64 = BYTESWAP64(dm->microSecondTimeStamp[0]);
-							}
-							
+
+							*ptr64 = BYTESWAP64(dm->firstTimeStamp);
+
 							*ptr++ = GPMF_KEY_TIME_STAMP;
 							*ptr++ = MAKEID('J', 8, 0, 1);
 							*ptr++ = swap64timestamp[0];
 							*ptr++ = swap64timestamp[1];
-							
+
 							devicesizebytes += 16;
 							streamsizebytes += 16;
+
+							if (LARGESTTIMESTAMP == latestTimeStamp)
+								samples2store = 0xffffff;
+							else if (latestTimeStamp > dm->firstTimeStamp)
+							{
+								if(didRegression)
+									samples2store = (uint32_t)((FLOAT_PRECISION)(latestTimeStamp - dm->firstTimeStamp) / slope + 0.5);
+								else
+								{
+									uint32_t smps = 0;
+									next_first_ts = dm->firstTimeStamp;
+									ts_pos = 0;	
+									#if MDA_DEBUG
+									ptr[0] = STR2FOURCC("DeLT"); 
+									#endif
+									while (next_first_ts < latestTimeStamp && ts_pos < dm->payloadTimeStampCount)
+									{
+										next_first_ts += dm->deltaTimeStamp[ts_pos];
+										smps += dm->sampleCount[ts_pos];
+										
+										#if MDA_DEBUG
+										ptr[2+ts_pos] = BYTESWAP32(dm->deltaTimeStamp[ts_pos]); 
+										#endif
+										
+										ts_pos++;
+									}
+									samples2store = smps;
+									
+									
+									#if MDA_DEBUG
+									ptr[1] = GPMF_MAKE_TYPE_SIZE_COUNT(GPMF_TYPE_UNSIGNED_LONG, 4, ts_pos);
+									ptr += 2+ts_pos;
+									devicesizebytes += 4*(2+ts_pos);
+									streamsizebytes += 4*(2+ts_pos);
+									
+									*ptr++ = STR2FOURCC("SmPS"); 
+									*ptr++ = GPMF_MAKE_TYPE_SIZE_COUNT(GPMF_TYPE_UNSIGNED_LONG, 4, 1);
+									*ptr++ = BYTESWAP32(samples2store); 
+									devicesizebytes += 12;
+									streamsizebytes += 12;
+									#endif
+								}
+							}
+							else
+								samples2store = 0;
 						}
 
 						//Sticky Metadata for each stream
-						if (session_scale == 0) // copy all Sticky data
+						if (session_scale == 0 && samples2store >= currentSamples)// dm->lastTimeStamp <= latestTimeStamp) // copy all Sticky data
 						{
 							memcpy(ptr, dm->payload_sticky_buffer, ((dm->payload_sticky_curr_size + 3)&~3));
 							devicesizebytes += ((dm->payload_sticky_curr_size + 3)&~3);
@@ -2045,28 +2648,100 @@ uint32_t GPMFWriteGetPayloadAndSession(size_t ws_handle, uint32_t channel, uint3
 						}
 						else
 						{
-							uint32_t tag; 
-							uint32_t *src_lptr = (uint32_t *)dm->payload_sticky_buffer;
-
+							uint32_t *sticky_lptr = (uint32_t *)dm->payload_sticky_buffer;
+							uint32_t tag = sticky_lptr[0]; 
+							
 							do
 							{
-								tag = src_lptr[0];
-								if (tag == GPMF_KEY_EMPTY_PAYLOADS || tag == GPMF_KEY_TOTAL_SAMPLES) // meaningless in Session files
+								if (session_scale > 0 && 
+									(tag == GPMF_KEY_EMPTY_PAYLOADS || 
+									 tag == GPMF_KEY_TIME_OFFSET)) // meaningless in Session files
 								{
-									src_lptr += (8 + GPMF_DATA_SIZE(src_lptr[1])) >> 2;
+									sticky_lptr += (8 + GPMF_DATA_SIZE(sticky_lptr[1])) >> 2;
+								}
+								else if (tag == GPMF_KEY_TOTAL_SAMPLES)
+								{
+									int bytes = (8 + GPMF_DATA_SIZE(sticky_lptr[1]));
+									if (session_scale > 0) // meaningless in Session files
+									{
+										sticky_lptr += bytes >> 2;
+									}
+									else
+									{
+										memcpy(ptr, sticky_lptr, bytes);
+
+										if (samples2store < currentSamples)
+										{
+											uint32_t totalsamples = BYTESWAP32(ptr[2]);
+											totalsamples -= (currentSamples - samples2store);
+											ptr[2] = BYTESWAP32(totalsamples);
+										}
+
+										ptr += bytes >> 2;
+										sticky_lptr += bytes >> 2;
+										devicesizebytes += bytes;
+										streamsizebytes += bytes;
+									}
 								}
 								else if(GPMF_VALID_FOURCC(tag))
 								{
-									int bytes = (8 + GPMF_DATA_SIZE(src_lptr[1]));
-									memcpy(ptr, src_lptr, bytes);
+									int bytes = (8 + GPMF_DATA_SIZE(sticky_lptr[1]));
+									memcpy(ptr, sticky_lptr, bytes);
 									ptr += bytes >> 2;
-									src_lptr += bytes >> 2;
+									sticky_lptr += bytes >> 2;
 									devicesizebytes += bytes;
 									streamsizebytes += bytes;
 								}
 
+								tag = sticky_lptr[0];
 							} while (GPMF_VALID_FOURCC(tag));
 						}
+#if MDA_DEBUG
+						*ptr++ = STR2FOURCC("GRPD");
+						*ptr++ = GPMF_MAKE_TYPE_SIZE_COUNT(GPMF_TYPE_UNSIGNED_LONG, 4, 1);
+						*ptr++ = BYTESWAP32(grouped);
+						devicesizebytes += 12;
+						streamsizebytes += 12;
+
+						*ptr++ = STR2FOURCC("CURR");
+						*ptr++ = GPMF_MAKE_TYPE_SIZE_COUNT(GPMF_TYPE_UNSIGNED_LONG, 4, 1);
+						*ptr++ = BYTESWAP32(currentSamples);
+						devicesizebytes += 12;
+						streamsizebytes += 12;
+
+						*ptr++ = STR2FOURCC("STOR");
+						*ptr++ = GPMF_MAKE_TYPE_SIZE_COUNT(GPMF_TYPE_UNSIGNED_LONG, 4, 1);
+						*ptr++ = BYTESWAP32(samples2store);
+						devicesizebytes += 12;
+						streamsizebytes += 12;
+
+						uint32_t swap64timestamp[2];
+						uint64_t *ptr64 = (uint64_t *)&swap64timestamp[0];
+
+						*ptr64 = BYTESWAP64(dm->firstTimeStamp);
+						*ptr++ = STR2FOURCC("FRST");
+						*ptr++ = GPMF_MAKE_TYPE_SIZE_COUNT(GPMF_TYPE_UNSIGNED_64BIT_INT, 8, 1);
+						*ptr++ = swap64timestamp[0];
+						*ptr++ = swap64timestamp[1];
+						devicesizebytes += 16;
+						streamsizebytes += 16;
+
+						*ptr64 = BYTESWAP64(dm->lastTimeStamp);
+						*ptr++ = STR2FOURCC("LAST");
+						*ptr++ = GPMF_MAKE_TYPE_SIZE_COUNT(GPMF_TYPE_UNSIGNED_64BIT_INT, 8, 1);
+						*ptr++ = swap64timestamp[0];
+						*ptr++ = swap64timestamp[1];
+						devicesizebytes += 16;
+						streamsizebytes += 16;
+
+						*ptr64 = BYTESWAP64(latestTimeStamp);
+						*ptr++ = STR2FOURCC("NOWT");
+						*ptr++ = GPMF_MAKE_TYPE_SIZE_COUNT(GPMF_TYPE_UNSIGNED_64BIT_INT, 8, 1);
+						*ptr++ = swap64timestamp[0];
+						*ptr++ = swap64timestamp[1];
+						devicesizebytes += 16;
+						streamsizebytes += 16;
+#endif
 					}
 					
 					
@@ -2074,24 +2749,134 @@ uint32_t GPMFWriteGetPayloadAndSession(size_t ws_handle, uint32_t channel, uint3
 					
 					if (dm->payload_curr_size > 0)
 					{
-						uint32_t *src_lptr = (uint32_t *)dm->payload_buffer;
-						uint8_t *src_bptr = (uint8_t *)dm->payload_buffer;
-
 						//copy the preformatted device metadata into the output buffer
 						if (session_scale == 0)
 						{
-#if SCAN_GPMF_FOR_STATE
-							uint32_t payload_curr_size = SeekEndGPMF(src_lptr, dm->payload_alloc_size);
-#else
-							uint32_t payload_curr_size = dm->payload_curr_size;
-#endif
-							int payloadAddition = (payload_curr_size + 3)&~3;
-							memcpy(ptr, dm->payload_buffer, payloadAddition);						
-							devicesizebytes += payloadAddition;
-							streamsizebytes += payloadAddition;
-							ptr += (payloadAddition >> 2);
+							uint32_t storesamples;
+							if (samples2store >= currentSamples)
+								storesamples = currentSamples;
+							else
+								storesamples = samples2store;
+
+							{
+								uint32_t sampleSize;
+								uint32_t *srcPayload = src_lptr;
+								uint32_t *remainingPayload = src_lptr;
+								uint32_t dataSize;
+								uint32_t remainingSamples = 0;
+								uint32_t remainingSize = 0;
+								uint32_t remainingOffset = 0;
+								uint32_t payloadAddition;
+
+								sampleSize = GPMF_SAMPLE_SIZE(srcPayload[1]);
+
+								dataSize = DataSizeForSamples(srcPayload, storesamples, grouped);
+
+								remainingSize = currentTotalSampleBytes - dataSize;
+								remainingOffset = dataSize;
+
+								while (dataSize)
+								{
+									payloadAddition = dataSize;
+
+									if(!grouped)
+										srcPayload[1] = GPMF_MAKE_TYPE_SIZE_COUNT(GPMF_KEY_TYPE(srcPayload[1]), sampleSize, storesamples);
+									
+									if (dm->quantize && payloadAddition > 100 && !grouped)
+										payloadAddition = GPMFCompress(ptr, srcPayload, payloadAddition, dm->quantize);
+									else
+										memcpy(ptr, srcPayload, payloadAddition);
+
+									if (payloadAddition & 3)
+									{
+										uint8_t *ptr8 = (uint8_t *)ptr + payloadAddition;
+										if ((payloadAddition & 3) <= 3) *ptr8++ = 0;
+										if ((payloadAddition & 3) <= 2) *ptr8++ = 0;
+										if ((payloadAddition & 3) <= 1) *ptr8++ = 0;
+										payloadAddition += 3;
+										payloadAddition &= 0xfffffffc;
+									}
+
+									devicesizebytes += payloadAddition;
+									streamsizebytes += payloadAddition;
+									ptr += (payloadAddition >> 2);
+
+									// restore remaining data
+									remainingSamples = currentSamples - storesamples;
+									if (remainingSamples)
+									{
+										uint8_t *srcdata;
+
+										if (grouped)
+										{
+											srcdata = (uint8_t *)srcPayload;
+											srcdata += remainingOffset;
+											memcpy(remainingPayload, srcdata, remainingSize); //move remaining samples down
+											remainingPayload += ((remainingSize + 3) >> 2);
+
+											srcdata = (uint8_t *)srcPayload;
+											srcdata += (remainingOffset + remainingSize + 3) & ~3;
+										}
+										else
+										{
+											srcPayload[1] = GPMF_MAKE_TYPE_SIZE_COUNT(GPMF_KEY_TYPE(srcPayload[1]), sampleSize, remainingSamples);
+											remainingPayload[0] = srcPayload[0];
+											remainingPayload[1] = srcPayload[1];
+
+											srcdata = (uint8_t *)srcPayload;
+											srcdata += remainingOffset;
+											memcpy(&remainingPayload[2], srcdata, sampleSize*remainingSamples); //move remaining samples down
+											remainingPayload += 2 + ((sampleSize*remainingSamples + 3) >> 2);
+
+											srcdata = (uint8_t *)srcPayload;
+											srcdata += (remainingOffset + sampleSize * remainingSamples + 3) & ~3;
+										}
+
+										{//move remaining GPMF samples down
+											uint32_t *moreGPMF = (uint32_t *)srcdata;
+											uint32_t movebytes = 0;
+											while (*moreGPMF)
+											{
+												movebytes += 8 + GPMF_DATA_SIZE(moreGPMF[1]);
+												moreGPMF += 2 + (GPMF_DATA_SIZE(moreGPMF[1])>>2);
+											}
+											memcpy(remainingPayload, srcdata, movebytes); 
+
+											remainingPayload[movebytes >> 2] = GPMF_KEY_END;
+										}
+
+										srcPayload = remainingPayload;
+									}
+									else
+										srcPayload += (currentTotalSampleBytes+3) >> 2;
+									
+									if (GPMF_KEY_END != srcPayload[0])
+									{
+										currentTotalSampleBytes = 8 + GPMF_DATA_SIZE(srcPayload[1]);
+										grouped = AreSamplesGrouped(srcPayload, &currentTotalSampleBytes);
+										if (grouped)
+											currentSamples = grouped;
+										else
+											currentSamples = GPMF_SAMPLES(srcPayload[1]);
+
+										if (samples2store >= currentSamples)
+											storesamples = currentSamples;
+										else
+											storesamples = samples2store;
+
+										dataSize = DataSizeForSamples(srcPayload, storesamples, grouped);
+										sampleSize = GPMF_SAMPLE_SIZE(srcPayload[1]);
+
+										remainingSize = currentTotalSampleBytes - dataSize;
+										remainingOffset = dataSize;
+									}
+									else
+										dataSize = 0;
+								}
+
+							}
 						}
-						else
+						else // Session processing
 						{
 							uint32_t last_tag = 0;
 							uint32_t tag = src_lptr[0];
@@ -2292,6 +3077,83 @@ uint32_t GPMFWriteGetPayloadAndSession(size_t ws_handle, uint32_t channel, uint3
 						}
 					}
 					
+
+					if (freebuffers)
+					{
+						if(dm->payload_curr_size > 0 && dm->device_id != GPMF_DEVICE_ID_PREFORMATTED) // only clear is used for metadata, PREFORMATTED uses this buffer for nested payloads.
+						{
+							//src_lptr = (uint32_t *)dm->payload_buffer;
+
+							if (samples2store >= currentSamples)
+							{
+								dm->payload_buffer[0] = GPMF_KEY_END;
+								dm->payload_curr_size = 0;
+								dm->payload_tick = 0;
+								dm->deltaTimeStamp[0] = 0;
+								dm->sampleCount[0] = 0;
+								dm->payloadTimeStampCount = 0;
+								dm->firstTimeStamp = dm->lastTimeStamp = next_first_ts;
+							}
+							else
+							{
+								if (didRegression == 1)
+								{
+									uint64_t nextts = (uint64_t)((FLOAT_PRECISION)samples2store * slope + intercept + 0.5);
+									uint64_t currts = dm->firstTimeStamp;
+									uint32_t smps = 0;
+									ts_pos = 0;
+									while (smps < samples2store && ts_pos < dm->payloadTimeStampCount)
+									{
+										currts += dm->deltaTimeStamp[ts_pos];
+										smps += dm->sampleCount[ts_pos];
+										ts_pos++;
+									}
+
+									if (smps > samples2store)
+									{
+										ts_pos--;
+										currts -= dm->deltaTimeStamp[ts_pos];
+										dm->sampleCount[ts_pos] = (uint16_t)(smps - samples2store);
+									}
+									if (nextts > currts)
+									{
+										int32_t delta = (int32_t)((int64_t)currts + (int64_t)dm->deltaTimeStamp[ts_pos] - (int64_t)nextts);
+										if (delta >= 0)
+											dm->deltaTimeStamp[ts_pos] = (uint32_t)delta;
+										else
+										{
+											dm->deltaTimeStamp[ts_pos] = 0;
+											if ((uint32_t)abs(delta) <= dm->deltaTimeStamp[ts_pos + 1])
+												dm->deltaTimeStamp[ts_pos + 1] -= abs(delta);
+										}
+									}
+									dm->firstTimeStamp = nextts;
+								}
+								else
+								{
+									dm->firstTimeStamp = next_first_ts;
+								}
+								
+								if(ts_pos>0 && dm->payloadTimeStampCount>=ts_pos)
+								{
+									memcpy(&dm->deltaTimeStamp[0], &dm->deltaTimeStamp[ts_pos], sizeof(dm->deltaTimeStamp[0])*(dm->payloadTimeStampCount - ts_pos));
+									memcpy(&dm->sampleCount[0], &dm->sampleCount[ts_pos], sizeof(dm->sampleCount[0])*(dm->payloadTimeStampCount - ts_pos));
+									dm->payloadTimeStampCount -= ts_pos;
+								}
+								ts_pos = dm->payloadTimeStampCount;
+								while (ts_pos < MAX_TIMESTAMPS)
+								{
+									dm->deltaTimeStamp[ts_pos] = 0;
+									dm->sampleCount[ts_pos] = 0;
+									ts_pos++;
+								}
+
+								dm->payload_curr_size = SeekEndGPMF(dm->payload_buffer, dm->payload_alloc_size);
+							}
+						}
+					}
+					
+					
 					//write the size field for the end of each stream
 					if (laststreamsizeptr)
 					{
@@ -2318,18 +3180,6 @@ uint32_t GPMFWriteGetPayloadAndSession(size_t ws_handle, uint32_t channel, uint3
 							}
 						}
 					}
-
-					if (freebuffers)
-					{
-						if(dm->payload_curr_size > 0 && dm->device_id != GPMF_DEVICE_ID_PREFORMATTED) // only clear is used for metadata, PREFORMATTED uses this buffer for nested payloads.
-						{
-							dm->payload_buffer[0] = GPMF_KEY_END;
-							dm->payload_curr_size = 0;
-							dm->payload_tick = 0;
-							dm->microSecondTimeStamp[0] = 0;
-							dm->totalTimeStampCount = 0;
-						}
-					}
 				}
 				
 				dmnext = dm->next;
@@ -2352,7 +3202,7 @@ uint32_t GPMFWriteGetPayloadAndSession(size_t ws_handle, uint32_t channel, uint3
 		}
 
 		
-		switch (i)
+		switch (j)
 		{
 		case 0: // MP4 payload
 			*payload = newpayload;
@@ -2375,7 +3225,10 @@ uint32_t GPMFWriteGetPayloadAndSession(size_t ws_handle, uint32_t channel, uint3
 
 uint32_t GPMFWriteGetPayload(size_t ws_handle, uint32_t channel, uint32_t *buffer, uint32_t buffer_size, uint32_t **payload, uint32_t *size)
 {
-	return GPMFWriteGetPayloadAndSession(ws_handle, channel, buffer, buffer_size, payload, size, NULL, NULL, 0);
+	return GPMFWriteGetPayloadAndSession(ws_handle, channel, buffer, buffer_size, payload, size, NULL, NULL, 0, LARGESTTIMESTAMP);
 }
-			  
-								
+
+uint32_t GPMFWriteGetPayloadWindow(size_t ws_handle, uint32_t channel, uint32_t *buffer, uint32_t buffer_size, uint32_t **payload, uint32_t *size, uint64_t latestTimeStamp)
+{
+	return GPMFWriteGetPayloadAndSession(ws_handle, channel, buffer, buffer_size, payload, size, NULL, NULL, 0, latestTimeStamp);
+}
