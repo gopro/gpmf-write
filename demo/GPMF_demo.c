@@ -289,7 +289,8 @@ int main(int argc, char *argv[])
 		GPMFWriteGetPayload(gpmfhandle, GPMF_CHANNEL_SETTINGS, (uint32_t *)buffer, sizeof(buffer), &payload, &payload_size);
 
 
-		uint64_t tick = 1, firsttick, payloadtick, nowtick;
+		uint64_t tick = 33000, firsttick, payloadtick, nowtick;
+		uint64_t timestamp = 100900;
 #ifdef REALTICK
 		LARGE_INTEGER tt;
 		QueryPerformanceCounter(&tt);
@@ -301,6 +302,7 @@ int main(int argc, char *argv[])
 
 		for (faketime = 0; faketime < 100; faketime++)
 		{
+			uint32_t delta[10] = { 99900, 100000, 99900, 100000, 99900, 99900, 100000, 100500, 100000, 100000 };
 			uint32_t data_per = 10;// +(rand() & 1);
 
 			payloadtick = tick;
@@ -320,21 +322,28 @@ int main(int argc, char *argv[])
 					case 0: //pretend no data	
 					{
 						short sdata[60],k;
-						static int count = 0;
+						static uint32_t count = 0, isocount = 0;
 
 #if ENABLE_SNR_B
-						uint64_t timestamp = (uint64_t)tick;
 
-						for (k = 0; k < 10; k++)
+						for (k = 0; k < 20; k++)
 						{
 							sdata[k * 3 + 0] = count;
 							sdata[k * 3 + 1] = count;
 							sdata[k * 3 + 2] = count++;
 						}
-						err = GPMFWriteStreamStoreStamped(handleB, STR2FOURCC("GYRO"), GPMF_TYPE_UNSIGNED_SHORT, sizeof(uint16_t) * 3, k, sdata, GPMF_FLAGS_NONE, tick);
+
+						//timestamp = 67000 + tick + (rand() % 10) * 100;
+						err = GPMFWriteStreamStoreStamped(handleB, STR2FOURCC("GYRO"), GPMF_TYPE_UNSIGNED_SHORT, sizeof(uint16_t) * 3, k, sdata, GPMF_FLAGS_NONE, timestamp);
+						timestamp += delta[fakedata];
 	#if ENABLE_SNR_A
-						err = GPMFWriteStreamStoreStamped(handleA, STR2FOURCC("ACCL"), GPMF_TYPE_UNSIGNED_SHORT, sizeof(uint16_t) * 3, k, sdata, GPMF_FLAGS_NONE, tick);
+						err = GPMFWriteStreamStoreStamped(handleA, STR2FOURCC("ISOE"), GPMF_TYPE_UNSIGNED_LONG, sizeof(uint32_t), 1, &isocount, GPMF_FLAGS_NONE, tick);
+						isocount++;
 	#endif
+
+
+						if (faketime == 0 && fakedata == 0)
+							GPMFWriteGetPayloadWindow(gpmfhandle, GPMF_CHANNEL_TIMED, (uint32_t *)buffer, sizeof(buffer), &payload, &payload_size, 30000); // Flush partial second
 
 #endif
 						{
@@ -471,7 +480,7 @@ int main(int argc, char *argv[])
 #ifndef REALTICK
 				//tick += samples * 10;
 				//tick += 100 + (rand() & 17);
-				tick += 100;
+				tick += 100000; 
 
 				//if (tick == 5400) 
 				//	tick += 9;
@@ -479,9 +488,6 @@ int main(int argc, char *argv[])
 				Sleep(2 * samples); // << to help test the time stamps.
 #endif
 			}
-
-			if(faketime == 0)
-				GPMFWriteGetPayloadWindow(gpmfhandle, GPMF_CHANNEL_TIMED, (uint32_t *)buffer, sizeof(buffer), &payload, &payload_size, 299); // Flush partial second
 
 			nowtick = payloadtick + (tick - payloadtick) * 8 / 10; // test by reading out only the last half samples
 			nowtick = tick+1; // test by reading out only the last half samples
