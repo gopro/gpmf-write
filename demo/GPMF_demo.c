@@ -79,17 +79,11 @@ int main(int argc, char *argv[])
 	gpmfhandle = GPMFWriteServiceInit();
 	if (gpmfhandle && mp4_handle)
 	{
-		size_t handleA = 0;
-		size_t handleB = 0;
-		size_t handleC = 0;
 		size_t handleT = 0;
 		char buffer[4*8192];
-		char sensorA[4 * 8192];
-		char sensorB[4096];
-		char sensorC[4096];
-		char sensorT[4096];
 		uint32_t *payload=NULL, payload_size=0, samples, i;
-		uint32_t tmp,faketime,fakedata;
+		uint32_t faketime,fakedata;
+//		uint32_t tmp;
 		uint32_t count = 0;
 		uint8_t bdata[40] = { 0 };
 		uint16_t sdata[40] = { 0 }, signal = 0;
@@ -98,18 +92,25 @@ int main(int argc, char *argv[])
 		sensorAdata Adata[10];
 
 #if ENABLE_SNR_A
+		size_t handleA = 0;
+		char sensorA[4 * 8192];
 		handleA = GPMFWriteStreamOpen(gpmfhandle, GPMF_CHANNEL_TIMED, GPMF_DEVICE_ID_CAMERA, "MyCamera", sensorA, sizeof(sensorA));
 		if (handleA == 0) goto cleanup;
 #endif
 #if ENABLE_SNR_B
+		size_t handleB = 0;
+		char sensorB[4096];
 		handleB = GPMFWriteStreamOpen(gpmfhandle, GPMF_CHANNEL_TIMED, GPMF_DEVICE_ID_CAMERA, "MyCamera", sensorB, sizeof(sensorB));
 		if (handleB == 0) goto cleanup;
 #endif
 #if ENABLE_SNR_C
+		size_t handleC = 0;
+		char sensorC[4096];
 		handleC = GPMFWriteStreamOpen(gpmfhandle, GPMF_CHANNEL_TIMED, GPMF_DEVICE_ID_CAMERA, "MyCamera", sensorC, sizeof(sensorC));
 		if (handleC == 0) goto cleanup;
 #endif
 
+		char sensorT[4096];
 		handleT = GPMFWriteStreamOpen(gpmfhandle, GPMF_CHANNEL_SETTINGS, GPMF_DEVICE_ID_CAMERA, "Global", sensorT, sizeof(sensorT));
 		if (handleT == 0) goto cleanup;
 
@@ -347,7 +348,7 @@ int main(int argc, char *argv[])
 
 #endif
 						{
-							float fcount = (float)(count-1) / 100.0;
+							float fcount = (float)(count-1) / 100.0f;
 							err = 0;
 							//samples = 1 + (rand() % 3); //1-3 values
 							//samples = 2;
@@ -390,6 +391,7 @@ int main(int argc, char *argv[])
 						break;
 /*
 					case 1: //pretend Sensor A data
+#if ENABLE_SNR_A
 						//samples = 1 + (rand() % 3); //1-3 values
 						//samples = 2;
 						samples = 1;
@@ -410,12 +412,14 @@ int main(int argc, char *argv[])
 						{
 							printf("err = %d\n", err);
 						}
+#endif
 						break;*/
 
 					case 1: //pretend Sensor A data
+#if ENABLE_SNR_A
 					{
 						uint64_t ltime = tick + 100; // .1 second delayed
-						float count = (float)(tick - 1000) / 100.0;
+						float count = (float)(tick - 1000) / 100.0f;
 						err = 0;
 						//samples = 1 + (rand() % 3); //1-3 values
 						//samples = 2;
@@ -445,29 +449,33 @@ int main(int argc, char *argv[])
 							printf("err = %d\n", err);
 						}
 					}
+#endif
 					break;
 
 					case 2: //pretend Sensor B data
-					{
-						static uint16_t scount = 1;
-						//samples = 0 + (rand() % 4); //0-3 values
-						samples = 1 + (rand() % 3); //1-3 values
-						//samples = 1;
-						for (i = 0; i < (int)samples; i++) sdata[i] = scount;// (uint32_t)rand() & 0xffffff;
-						scount++;
-						//err = GPMFWriteStreamStoreStamped(handleB, STR2FOURCC("SnrB"), GPMF_TYPE_UNSIGNED_SHORT, sizeof(uint16_t), samples, sdata, GPMF_FLAGS_NONE, tick);
-						err = GPMFWriteStreamStoreStamped(handleB, STR2FOURCC("SnrB"), GPMF_TYPE_UNSIGNED_SHORT, sizeof(uint16_t), samples, sdata, GPMF_FLAGS_GROUPED, tick);
-						//err = GPMFWriteStreamStoreStamped(handleB, STR2FOURCC("SnrB"), GPMF_TYPE_UNSIGNED_SHORT, sizeof(uint16_t), samples, sdata, GPMF_FLAGS_STORE_ALL_TIMESTAMPS, tick);
-						//err = GPMFWriteStreamStore(handleB, STR2FOURCC("SnrB"), GPMF_TYPE_UNSIGNED_SHORT, sizeof(uint16_t), samples, sdata, GPMF_FLAGS_NONE);
-						//err = GPMFWriteStreamStore(handleB, STR2FOURCC("SnrB"), GPMF_TYPE_UNSIGNED_SHORT, sizeof(uint16_t), samples, sdata, GPMF_FLAGS_GROUPED);
-						if (err)
+#if ENABLE_SNR_B
 						{
-							printf("err = %d\n", err);
+							static uint16_t scount = 1;
+							//samples = 0 + (rand() % 4); //0-3 values
+							samples = 1 + (rand() % 3); //1-3 values
+							//samples = 1;
+							for (i = 0; i < (int)samples; i++) sdata[i] = scount;// (uint32_t)rand() & 0xffffff;
+							scount++;
+							//err = GPMFWriteStreamStoreStamped(handleB, STR2FOURCC("SnrB"), GPMF_TYPE_UNSIGNED_SHORT, sizeof(uint16_t), samples, sdata, GPMF_FLAGS_NONE, tick);
+							err = GPMFWriteStreamStoreStamped(handleB, STR2FOURCC("SnrB"), GPMF_TYPE_UNSIGNED_SHORT, sizeof(uint16_t), samples, sdata, GPMF_FLAGS_GROUPED, tick);
+							//err = GPMFWriteStreamStoreStamped(handleB, STR2FOURCC("SnrB"), GPMF_TYPE_UNSIGNED_SHORT, sizeof(uint16_t), samples, sdata, GPMF_FLAGS_STORE_ALL_TIMESTAMPS, tick);
+							//err = GPMFWriteStreamStore(handleB, STR2FOURCC("SnrB"), GPMF_TYPE_UNSIGNED_SHORT, sizeof(uint16_t), samples, sdata, GPMF_FLAGS_NONE);
+							//err = GPMFWriteStreamStore(handleB, STR2FOURCC("SnrB"), GPMF_TYPE_UNSIGNED_SHORT, sizeof(uint16_t), samples, sdata, GPMF_FLAGS_GROUPED);
+							if (err)
+							{
+								printf("err = %d\n", err);
+							}
 						}
-					}
+#endif
 						break;
 
 					case 3: //pretend Sensor C data, high frequency, demoing compression
+#if ENABLE_SNR_C
 						samples = 10 + (rand() % 30); //10-40 values
 						for (i = 0; i < samples; i++) { sdata[i] = signal + (uint16_t)(rand() & 0x7); signal++; } // signal and noise
 						//err = GPMFWriteStreamStoreStamped(handleC, STR2FOURCC("SnrC"), GPMF_TYPE_UNSIGNED_SHORT, sizeof(uint16_t), samples, sdata, GPMF_FLAGS_NONE, tick);
@@ -476,6 +484,8 @@ int main(int argc, char *argv[])
 						{
 							printf("err = %d\n", err);
 						}
+#endif
+						break;
 				}
 #ifndef REALTICK
 				//tick += samples * 10;
