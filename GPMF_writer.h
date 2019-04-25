@@ -355,11 +355,24 @@ uint32_t GPMFWriteGetPayload(size_t ws_handle, uint32_t channel, uint32_t *buffe
 * @param[in] buffer_size the size of the buffer.*
 * @param[out] payload pointer to the payload (in this function, it will always point to the buffer passed in)
 * @param[out] size the size of returned payload
-* @param[in] latest TimeStamp to get, leave newer sample for a later request.
+* @param[in] latest TimeStamp to get, leave newer samples for a later request.
 *
 * @retval error code
 */
 uint32_t GPMFWriteGetPayloadWindow(size_t ws_handle, uint32_t channel, uint32_t *buffer, uint32_t buffer_size, uint32_t **payload, uint32_t *size, uint64_t latestTimeStamp);
+
+
+/* GPMFWriteFlushWindow
+*
+* Called for each payload to be sent to the MP4, flush samples up to the provided time stamp.
+*
+* @param[in] ws_handle returned by GPMFWriteServiceInit()
+* @param[in] channel to indicate the type of metadata
+* @param[in] latest TimeStamp to flush, leave newer samples for a later request.
+*
+* @retval error code
+*/
+uint32_t GPMFWriteFlushWindow(size_t ws_handle, uint32_t channel, uint64_t latestTimeStamp);
 
 
 /* GPMFWriteGetPayloadAndSession

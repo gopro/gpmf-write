@@ -2330,7 +2330,7 @@ uint32_t GPMFWriteGetPayloadAndSession(	size_t ws_handle, uint32_t channel, uint
 	}
 
 
-	if (estimatesize == 0)
+	if (estimatesize == 0 && buffer != NULL)
 	{
 		if (payloadsize)
 			*payloadsize = 0;
@@ -2353,7 +2353,7 @@ uint32_t GPMFWriteGetPayloadAndSession(	size_t ws_handle, uint32_t channel, uint
 		switch (j)
 		{
 		case 0: // MP4 payload
-			if(payload == NULL)
+			if(payload == NULL && buffer != NULL)
 				continue;
 
 			if(session == NULL)
@@ -2368,8 +2368,6 @@ uint32_t GPMFWriteGetPayloadAndSession(	size_t ws_handle, uint32_t channel, uint
 			break;
 		}
 
-		dm = ws->metadata_devices[channel];
-
 		{
 			uint32_t last_deviceID = 0;
 			uint32_t *ptr = newpayload;
@@ -2377,7 +2375,7 @@ uint32_t GPMFWriteGetPayloadAndSession(	size_t ws_handle, uint32_t channel, uint
 
 			dm = ws->metadata_devices[channel];
 			// Copy in all the metadata, formatted into the new buffer
-			while(dm && (payload || session))
+			while(dm)
 			{
 				Lock(&dm->device_lock); // Get data and return, minimal processing within the lock
 				//if(dm->payload_curr_size > 0) // Store information of all connected devices even if they have sent no data
@@ -2422,43 +2420,45 @@ uint32_t GPMFWriteGetPayloadAndSession(	size_t ws_handle, uint32_t channel, uint
 
 							while (extrapad && extrapad < chunksize)
 							{
-								*ptr++ = GPMF_KEY_END;
+								if(ptr) *ptr++ = GPMF_KEY_END;
 								extrapad--;
 							}
 							
 						}
 
 						{
-
-							// New device for the new device
-							*ptr++ = GPMF_KEY_DEVICE; // nested device to speed the parsing of multiple devices in post 
-							lastdevicesizeptr = ptr;  *ptr++ = 0;		// device size to be calculated and updates at the end. 
-							totalsize += 8;
-
-							//New Device ID -- GoPro source have a known ID
-							*ptr++ = GPMF_KEY_DEVICE_ID;
-							if (GPMF_VALID_FOURCC(dm->device_id))
+							if (ptr)
 							{
-								*ptr++ = MAKEID('F', 4, 0, 1);
-								*ptr++ = dm->device_id;
-							}
-							else
-							{
-								*ptr++ = MAKEID('L', 4, 0, 1);
-								*ptr++ = BYTESWAP32(dm->device_id);
+								// New device for the new device
+								*ptr++ = GPMF_KEY_DEVICE; // nested device to speed the parsing of multiple devices in post 
+								lastdevicesizeptr = ptr;  *ptr++ = 0;		// device size to be calculated and updates at the end. 
+								totalsize += 8;
 
-							}
-							devicesizebytes += 12;
+								//New Device ID -- GoPro source have a known ID
+								*ptr++ = GPMF_KEY_DEVICE_ID;
+								if (GPMF_VALID_FOURCC(dm->device_id))
+								{
+									*ptr++ = MAKEID('F', 4, 0, 1);
+									*ptr++ = dm->device_id;
+								}
+								else
+								{
+									*ptr++ = MAKEID('L', 4, 0, 1);
+									*ptr++ = BYTESWAP32(dm->device_id);
 
-							//String name for the device
-							namelen = strlen(dm->device_name);
-							*ptr++ = GPMF_KEY_DEVICE_NAME;
-							*ptr++ = MAKEID('c', 1, 0, namelen);
-							namlen4byte = (namelen + 3) & ~3;
-							memset((char *)ptr, 0, namlen4byte);
-							strncpy_s((char *)ptr, sizeof(dm->device_name), dm->device_name, namelen);
-							ptr += namlen4byte >> 2;
-							devicesizebytes += 8 + namlen4byte;
+								}
+								devicesizebytes += 12;
+
+								//String name for the device
+								namelen = strlen(dm->device_name);
+								*ptr++ = GPMF_KEY_DEVICE_NAME;
+								*ptr++ = MAKEID('c', 1, 0, namelen);
+								namlen4byte = (namelen + 3) & ~3;
+								memset((char *)ptr, 0, namlen4byte);
+								strncpy_s((char *)ptr, sizeof(dm->device_name), dm->device_name, namelen);
+								ptr += namlen4byte >> 2;
+								devicesizebytes += 8 + namlen4byte;
+							}
 
 							//Tick for the payload start (or higher precision MP4 timeing.)
 							if (dm->device_id == GPMF_DEVICE_ID_CAMERA && dm->channel != GPMF_CHANNEL_SETTINGS)
@@ -2476,10 +2476,13 @@ uint32_t GPMFWriteGetPayloadAndSession(	size_t ws_handle, uint32_t channel, uint
 
 								if (lowest_tick > 0)
 								{
-									*ptr++ = GPMF_KEY_TICK;
-									*ptr++ = MAKEID('L', 4, 0, 1);
-									*ptr++ = BYTESWAP32(lowest_tick);
-									devicesizebytes += 12;
+									if (ptr)
+									{
+										*ptr++ = GPMF_KEY_TICK;
+										*ptr++ = MAKEID('L', 4, 0, 1);
+										*ptr++ = BYTESWAP32(lowest_tick);
+										devicesizebytes += 12;
+									}
 								}
 
 							//	*ptr++ = GPMF_KEY_VERSION;
@@ -2516,9 +2519,12 @@ uint32_t GPMFWriteGetPayloadAndSession(	size_t ws_handle, uint32_t channel, uint
 					// Wrap telemetry in a New Stream (or channel) if the payload has sticky metadata
 					if (dm->payload_sticky_curr_size > 0)
 					{
-						*ptr++ = GPMF_KEY_STREAM; // nested device to speed the parsing of multiple devices in post 
-						laststreamsizeptr = ptr;  *ptr++ = 0;		// device size to be calculated and updates at the end. 
-						devicesizebytes += 8; 
+						if (ptr)
+						{
+							*ptr++ = GPMF_KEY_STREAM; // nested device to speed the parsing of multiple devices in post 
+							laststreamsizeptr = ptr;  *ptr++ = 0;		// device size to be calculated and updates at the end. 
+							devicesizebytes += 8;
+						}
 						
 						if (dm->payloadTimeStampCount != 0)
 						{
@@ -2577,29 +2583,32 @@ uint32_t GPMFWriteGetPayloadAndSession(	size_t ws_handle, uint32_t channel, uint
 								}
 							}
 
-							*ptr64 = BYTESWAP64(computedTimeStamp);
-
-							*ptr++ = GPMF_KEY_TIME_STAMP;
-							*ptr++ = MAKEID('J', 8, 0, 1);
-							*ptr++ = swap64timestamp[0];
-							*ptr++ = swap64timestamp[1];
-
-							devicesizebytes += 16;
-							streamsizebytes += 16;
-
-							#if MDA_DEBUG
-							ptr[0] = STR2FOURCC("DeLT");
-							ts_pos = 0;								
-							while (ts_pos < dm->payloadTimeStampCount)
+							if (ptr)
 							{
-								ptr[2+ts_pos] = BYTESWAP32(dm->deltaTimeStamp[ts_pos]); 
-								ts_pos++;
+								*ptr64 = BYTESWAP64(computedTimeStamp);
+
+								*ptr++ = GPMF_KEY_TIME_STAMP;
+								*ptr++ = MAKEID('J', 8, 0, 1);
+								*ptr++ = swap64timestamp[0];
+								*ptr++ = swap64timestamp[1];
+
+								devicesizebytes += 16;
+								streamsizebytes += 16;
+								#if MDA_DEBUG
+								ptr[0] = STR2FOURCC("DeLT");
+								ts_pos = 0;								
+								while (ts_pos < dm->payloadTimeStampCount)
+								{
+									ptr[2+ts_pos] = BYTESWAP32(dm->deltaTimeStamp[ts_pos]); 
+									ts_pos++;
+								}
+								ptr[1] = GPMF_MAKE_TYPE_SIZE_COUNT(GPMF_TYPE_UNSIGNED_LONG, 4, ts_pos);
+								ptr += 2+ts_pos;
+								devicesizebytes += 4*(2+ts_pos);
+								streamsizebytes += 4*(2+ts_pos);
+								#endif
 							}
-							ptr[1] = GPMF_MAKE_TYPE_SIZE_COUNT(GPMF_TYPE_UNSIGNED_LONG, 4, ts_pos);
-							ptr += 2+ts_pos;
-							devicesizebytes += 4*(2+ts_pos);
-							streamsizebytes += 4*(2+ts_pos);
-							#endif
+
 									
 							if (LARGESTTIMESTAMP == latestTimeStamp)
 								samples2store = 0xffffff;
@@ -2640,23 +2649,29 @@ uint32_t GPMFWriteGetPayloadAndSession(	size_t ws_handle, uint32_t channel, uint
 							else
 								samples2store = 0;
 							
-									
-							#if MDA_DEBUG									
-							*ptr++ = STR2FOURCC("SmPS"); 
-							*ptr++ = GPMF_MAKE_TYPE_SIZE_COUNT(GPMF_TYPE_UNSIGNED_LONG, 4, 1);
-							*ptr++ = BYTESWAP32(samples2store); 
-							devicesizebytes += 12;
-							streamsizebytes += 12;
+
+							#if MDA_DEBUG		
+							if (ptr)
+							{
+								*ptr++ = STR2FOURCC("SmPS");
+								*ptr++ = GPMF_MAKE_TYPE_SIZE_COUNT(GPMF_TYPE_UNSIGNED_LONG, 4, 1);
+								*ptr++ = BYTESWAP32(samples2store);
+								devicesizebytes += 12;
+								streamsizebytes += 12;
+							}
 							#endif
 						}
 
 						//Sticky Metadata for each stream
 						if (session_scale == 0 && samples2store >= currentSamples)// dm->lastTimeStamp <= latestTimeStamp) // copy all Sticky data
 						{
-							memcpy(ptr, dm->payload_sticky_buffer, ((dm->payload_sticky_curr_size + 3)&~3));
-							devicesizebytes += ((dm->payload_sticky_curr_size + 3)&~3);
-							streamsizebytes += ((dm->payload_sticky_curr_size + 3)&~3);
-							ptr += (dm->payload_sticky_curr_size + 3) >> 2;
+							if (ptr)
+							{
+								memcpy(ptr, dm->payload_sticky_buffer, ((dm->payload_sticky_curr_size + 3)&~3));
+								devicesizebytes += ((dm->payload_sticky_curr_size + 3)&~3);
+								streamsizebytes += ((dm->payload_sticky_curr_size + 3)&~3);
+								ptr += (dm->payload_sticky_curr_size + 3) >> 2;
+							}
 						}
 						else
 						{
@@ -2665,6 +2680,7 @@ uint32_t GPMFWriteGetPayloadAndSession(	size_t ws_handle, uint32_t channel, uint
 							
 							do
 							{
+								int bytes = (8 + GPMF_DATA_SIZE(sticky_lptr[1]));
 								if (session_scale > 0 && 
 									(tag == GPMF_KEY_EMPTY_PAYLOADS || 
 									 tag == GPMF_KEY_TIME_OFFSET)) // meaningless in Session files
@@ -2673,86 +2689,110 @@ uint32_t GPMFWriteGetPayloadAndSession(	size_t ws_handle, uint32_t channel, uint
 								}
 								else if (tag == GPMF_KEY_TOTAL_SAMPLES)
 								{
-									int bytes = (8 + GPMF_DATA_SIZE(sticky_lptr[1]));
 									if (session_scale > 0) // meaningless in Session files
 									{
 										sticky_lptr += bytes >> 2;
 									}
 									else
 									{
-										memcpy(ptr, sticky_lptr, bytes);
-
-										if (samples2store < currentSamples)
+										if (ptr)
 										{
-											uint32_t totalsamples = BYTESWAP32(ptr[2]);
-											totalsamples -= (currentSamples - samples2store);
-											ptr[2] = BYTESWAP32(totalsamples);
-										}
+											memcpy(ptr, sticky_lptr, bytes);
 
-										ptr += bytes >> 2;
+											if (samples2store < currentSamples)
+											{
+												uint32_t totalsamples = BYTESWAP32(ptr[2]);
+												totalsamples -= (currentSamples - samples2store);
+												ptr[2] = BYTESWAP32(totalsamples);
+											}
+
+											ptr += bytes >> 2;
+											devicesizebytes += bytes;
+											streamsizebytes += bytes;
+										}
+										else // this is flush, so reducing the size of GPMF_KEY_TOTAL_SAMPLES, but the number flushed.
+										{
+											uint32_t totalsamples = BYTESWAP32(sticky_lptr[2]);
+											if (samples2store <= totalsamples)
+												totalsamples -= samples2store;
+											else
+												totalsamples = 0;
+											sticky_lptr[2] = BYTESWAP32(totalsamples);
+										}
 										sticky_lptr += bytes >> 2;
-										devicesizebytes += bytes;
-										streamsizebytes += bytes;
 									}
 								}
 								else if(GPMF_VALID_FOURCC(tag))
 								{
-									int bytes = (8 + GPMF_DATA_SIZE(sticky_lptr[1]));
-									memcpy(ptr, sticky_lptr, bytes);
-									ptr += bytes >> 2;
+									if (ptr)
+									{
+										memcpy(ptr, sticky_lptr, bytes);
+										ptr += bytes >> 2;
+										devicesizebytes += bytes;
+										streamsizebytes += bytes;
+									}
 									sticky_lptr += bytes >> 2;
-									devicesizebytes += bytes;
-									streamsizebytes += bytes;
 								}
 
 								tag = sticky_lptr[0];
 							} while (GPMF_VALID_FOURCC(tag));
 						}
 #if MDA_DEBUG
-						*ptr++ = STR2FOURCC("GRPD");
-						*ptr++ = GPMF_MAKE_TYPE_SIZE_COUNT(GPMF_TYPE_UNSIGNED_LONG, 4, 1);
-						*ptr++ = BYTESWAP32(grouped);
-						devicesizebytes += 12;
-						streamsizebytes += 12;
+						if (ptr)
+						{
+							*ptr++ = STR2FOURCC("GRPD");
+							*ptr++ = GPMF_MAKE_TYPE_SIZE_COUNT(GPMF_TYPE_UNSIGNED_LONG, 4, 1);
+							*ptr++ = BYTESWAP32(grouped);
+							devicesizebytes += 12;
+							streamsizebytes += 12;
 
-						*ptr++ = STR2FOURCC("CURR");
-						*ptr++ = GPMF_MAKE_TYPE_SIZE_COUNT(GPMF_TYPE_UNSIGNED_LONG, 4, 1);
-						*ptr++ = BYTESWAP32(currentSamples);
-						devicesizebytes += 12;
-						streamsizebytes += 12;
+							*ptr++ = STR2FOURCC("CURR");
+							*ptr++ = GPMF_MAKE_TYPE_SIZE_COUNT(GPMF_TYPE_UNSIGNED_LONG, 4, 1);
+							*ptr++ = BYTESWAP32(currentSamples);
+							devicesizebytes += 12;
+							streamsizebytes += 12;
 
-						*ptr++ = STR2FOURCC("STOR");
-						*ptr++ = GPMF_MAKE_TYPE_SIZE_COUNT(GPMF_TYPE_UNSIGNED_LONG, 4, 1);
-						*ptr++ = BYTESWAP32(samples2store);
-						devicesizebytes += 12;
-						streamsizebytes += 12;
+							*ptr++ = STR2FOURCC("STOR");
+							*ptr++ = GPMF_MAKE_TYPE_SIZE_COUNT(GPMF_TYPE_UNSIGNED_LONG, 4, 1);
+							*ptr++ = BYTESWAP32(samples2store);
+							devicesizebytes += 12;
+							streamsizebytes += 12;
 
-						uint32_t swap64timestamp[2];
-						uint64_t *ptr64 = (uint64_t *)&swap64timestamp[0];
+							uint32_t swap64timestamp[2];
+							uint64_t *ptr64 = (uint64_t *)&swap64timestamp[0];
 
-						*ptr64 = BYTESWAP64(computedTimeStamp);
-						*ptr++ = STR2FOURCC("FRST");
-						*ptr++ = GPMF_MAKE_TYPE_SIZE_COUNT(GPMF_TYPE_UNSIGNED_64BIT_INT, 8, 1);
-						*ptr++ = swap64timestamp[0];
-						*ptr++ = swap64timestamp[1];
-						devicesizebytes += 16;
-						streamsizebytes += 16;
+							*ptr64 = BYTESWAP64(dm->firstTimeStamp);
+							*ptr++ = STR2FOURCC("FRST");
+							*ptr++ = GPMF_MAKE_TYPE_SIZE_COUNT(GPMF_TYPE_UNSIGNED_64BIT_INT, 8, 1);
+							*ptr++ = swap64timestamp[0];
+							*ptr++ = swap64timestamp[1];
+							devicesizebytes += 16;
+							streamsizebytes += 16;
 
-						*ptr64 = BYTESWAP64(dm->lastTimeStamp);
-						*ptr++ = STR2FOURCC("LAST");
-						*ptr++ = GPMF_MAKE_TYPE_SIZE_COUNT(GPMF_TYPE_UNSIGNED_64BIT_INT, 8, 1);
-						*ptr++ = swap64timestamp[0];
-						*ptr++ = swap64timestamp[1];
-						devicesizebytes += 16;
-						streamsizebytes += 16;
+							*ptr64 = BYTESWAP64(computedTimeStamp);
+							*ptr++ = STR2FOURCC("C1ST");
+							*ptr++ = GPMF_MAKE_TYPE_SIZE_COUNT(GPMF_TYPE_UNSIGNED_64BIT_INT, 8, 1);
+							*ptr++ = swap64timestamp[0];
+							*ptr++ = swap64timestamp[1];
+							devicesizebytes += 16;
+							streamsizebytes += 16;
 
-						*ptr64 = BYTESWAP64(latestTimeStamp);
-						*ptr++ = STR2FOURCC("NOWT");
-						*ptr++ = GPMF_MAKE_TYPE_SIZE_COUNT(GPMF_TYPE_UNSIGNED_64BIT_INT, 8, 1);
-						*ptr++ = swap64timestamp[0];
-						*ptr++ = swap64timestamp[1];
-						devicesizebytes += 16;
-						streamsizebytes += 16;
+							*ptr64 = BYTESWAP64(dm->lastTimeStamp);
+							*ptr++ = STR2FOURCC("LAST");
+							*ptr++ = GPMF_MAKE_TYPE_SIZE_COUNT(GPMF_TYPE_UNSIGNED_64BIT_INT, 8, 1);
+							*ptr++ = swap64timestamp[0];
+							*ptr++ = swap64timestamp[1];
+							devicesizebytes += 16;
+							streamsizebytes += 16;
+
+							*ptr64 = BYTESWAP64(latestTimeStamp);
+							*ptr++ = STR2FOURCC("NOWT");
+							*ptr++ = GPMF_MAKE_TYPE_SIZE_COUNT(GPMF_TYPE_UNSIGNED_64BIT_INT, 8, 1);
+							*ptr++ = swap64timestamp[0];
+							*ptr++ = swap64timestamp[1];
+							devicesizebytes += 16;
+							streamsizebytes += 16;
+						}
 #endif
 					}
 					
@@ -2794,24 +2834,28 @@ uint32_t GPMFWriteGetPayloadAndSession(	size_t ws_handle, uint32_t channel, uint
 									if(!grouped)
 										srcPayload[1] = GPMF_MAKE_TYPE_SIZE_COUNT(GPMF_KEY_TYPE(srcPayload[1]), sampleSize, storesamples);
 									
-									if (dm->quantize && payloadAddition > 100 && !grouped)
-										payloadAddition = GPMFCompress(ptr, srcPayload, payloadAddition, dm->quantize);
-									else
-										memcpy(ptr, srcPayload, payloadAddition);
 
-									if (payloadAddition & 3)
+									if (ptr)
 									{
-										uint8_t *ptr8 = (uint8_t *)ptr + payloadAddition;
-										if ((payloadAddition & 3) <= 3) *ptr8++ = 0;
-										if ((payloadAddition & 3) <= 2) *ptr8++ = 0;
-										if ((payloadAddition & 3) <= 1) *ptr8++ = 0;
-										payloadAddition += 3;
-										payloadAddition &= 0xfffffffc;
-									}
+										if (dm->quantize && payloadAddition > 100 && !grouped)
+											payloadAddition = GPMFCompress(ptr, srcPayload, payloadAddition, dm->quantize);
+										else
+											memcpy(ptr, srcPayload, payloadAddition);
 
-									devicesizebytes += payloadAddition;
-									streamsizebytes += payloadAddition;
-									ptr += (payloadAddition >> 2);
+										if (payloadAddition & 3)
+										{
+											uint8_t *ptr8 = (uint8_t *)ptr + payloadAddition;
+											if ((payloadAddition & 3) <= 3) *ptr8++ = 0;
+											if ((payloadAddition & 3) <= 2) *ptr8++ = 0;
+											if ((payloadAddition & 3) <= 1) *ptr8++ = 0;
+											payloadAddition += 3;
+											payloadAddition &= 0xfffffffc;
+										}
+
+										devicesizebytes += payloadAddition;
+										streamsizebytes += payloadAddition;
+										ptr += (payloadAddition >> 2);
+									}
 
 									// restore remaining data
 									remainingSamples = currentSamples - storesamples;
@@ -3218,14 +3262,18 @@ uint32_t GPMFWriteGetPayloadAndSession(	size_t ws_handle, uint32_t channel, uint
 		switch (j)
 		{
 		case 0: // MP4 payload
-			*payload = newpayload;
-			*payloadsize = totalsize;
+			if(payload)
+				*payload = newpayload;
+			if(payloadsize)
+				*payloadsize = totalsize;
 
 			newpayload += totalsize/sizeof(uint32_t);
 			break;
 		case 1: // session 
-			*session = newpayload;
-			*sessionsize = totalsize;
+			if (session)
+				*session = newpayload;
+			if (sessionsize)
+				*sessionsize = totalsize;
 			break;
 		}
 	}
@@ -3244,4 +3292,9 @@ uint32_t GPMFWriteGetPayload(size_t ws_handle, uint32_t channel, uint32_t *buffe
 uint32_t GPMFWriteGetPayloadWindow(size_t ws_handle, uint32_t channel, uint32_t *buffer, uint32_t buffer_size, uint32_t **payload, uint32_t *size, uint64_t latestTimeStamp)
 {
 	return GPMFWriteGetPayloadAndSession(ws_handle, channel, buffer, buffer_size, payload, size, NULL, NULL, 0, latestTimeStamp);
+}
+
+uint32_t GPMFWriteFlushWindow(size_t ws_handle, uint32_t channel, uint64_t latestTimeStamp)
+{
+	return GPMFWriteGetPayloadAndSession(ws_handle, channel, NULL, 0, NULL, 0, NULL, NULL, 0, latestTimeStamp);
 }

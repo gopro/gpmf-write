@@ -291,7 +291,7 @@ int main(int argc, char *argv[])
 
 
 		uint64_t tick = 33000, firsttick, payloadtick, nowtick;
-		uint64_t timestamp = 100900;
+		uint64_t timestamp = 33100;
 #ifdef REALTICK
 		LARGE_INTEGER tt;
 		QueryPerformanceCounter(&tt);
@@ -336,15 +336,14 @@ int main(int argc, char *argv[])
 
 						//timestamp = 67000 + tick + (rand() % 10) * 100;
 						err = GPMFWriteStreamStoreStamped(handleB, STR2FOURCC("GYRO"), GPMF_TYPE_UNSIGNED_SHORT, sizeof(uint16_t) * 3, k, sdata, GPMF_FLAGS_NONE, timestamp);
-						timestamp += delta[fakedata];
 	#if ENABLE_SNR_A
 						err = GPMFWriteStreamStoreStamped(handleA, STR2FOURCC("ISOE"), GPMF_TYPE_UNSIGNED_LONG, sizeof(uint32_t), 1, &isocount, GPMF_FLAGS_NONE, tick);
 						isocount++;
 	#endif
 
 
-						if (faketime == 0 && fakedata == 0)
-							GPMFWriteGetPayloadWindow(gpmfhandle, GPMF_CHANNEL_TIMED, (uint32_t *)buffer, sizeof(buffer), &payload, &payload_size, 30000); // Flush partial second
+						if (faketime == 0 && fakedata == 5)
+							GPMFWriteFlushWindow(gpmfhandle, GPMF_CHANNEL_TIMED, 160000); // Flush partial second
 
 #endif
 						{
@@ -490,6 +489,7 @@ int main(int argc, char *argv[])
 #ifndef REALTICK
 				//tick += samples * 10;
 				//tick += 100 + (rand() & 17);
+				timestamp += delta[fakedata];
 				tick += 100000; 
 
 				//if (tick == 5400) 
@@ -499,8 +499,8 @@ int main(int argc, char *argv[])
 #endif
 			}
 
-			nowtick = payloadtick + (tick - payloadtick) * 8 / 10; // test by reading out only the last half samples
-			nowtick = tick+1; // test by reading out only the last half samples
+			//nowtick = payloadtick + (tick - payloadtick) * 8 / 10; // test by reading out only the last half samples
+			nowtick = tick-100001; // test by reading out only the last half samples
 			//nowtick += 100; // test by reading out only the last half samples
 			GPMFWriteGetPayloadWindow(gpmfhandle, GPMF_CHANNEL_TIMED, (uint32_t *)buffer, sizeof(buffer), &payload, &payload_size, nowtick);
 			//GPMFWriteGetPayloadAndSession(gpmfhandle, GPMF_CHANNEL_TIMED, (uint32_t *)buffer, sizeof(buffer), NULL, NULL, &payload, &payload_size, 1, nowtick);
