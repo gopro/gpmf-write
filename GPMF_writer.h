@@ -86,6 +86,7 @@ typedef struct device_metadata
 	uint64_t lastTimeStamp;
 	uint32_t payloadTimeStampCount;
 	uint32_t quantize;
+	uint32_t groupedFourCC;
 } device_metadata;
 
 #define GPMF_STICKY_PAYLOAD_SIZE			256	// can be increased if need
