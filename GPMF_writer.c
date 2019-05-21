@@ -1040,9 +1040,6 @@ void GPMFWriteStreamReset(size_t dm_handle)
 		dm->firstTimeStamp = 0;
 		dm->lastTimeStamp = 0;
 
-		// clear TIMO
-		dm->last_time_delay_seconds = 0.0f;
-	    
 		if(dm->device_id == GPMF_DEVICE_ID_PREFORMATTED)
 	    {
 		    int i;	
@@ -2856,11 +2853,14 @@ uint32_t GPMFWriteGetPayloadAndSession(	size_t ws_handle, uint32_t channel, uint
 
 								if (currentTotalSampleBytes == 8 || empty)
 								{
-									ptr[0] = srcPayload[0]; // preseve TAG
-									ptr[1] = srcPayload[1] & 0xffff; // set the repeat to zero
-									devicesizebytes += 8;
-									streamsizebytes += 8;
-									ptr += 2;
+									if (newpayload)
+									{
+										ptr[0] = srcPayload[0]; // preseve TAG
+										ptr[1] = srcPayload[1] & 0xffff; // set the repeat to zero
+										devicesizebytes += 8;
+										streamsizebytes += 8;
+										ptr += 2;
+									}
 								}
 								else
 								{
@@ -2873,9 +2873,9 @@ uint32_t GPMFWriteGetPayloadAndSession(	size_t ws_handle, uint32_t channel, uint
 									{
 									payloadAddition = dataSize;
 
-									if (!grouped)
+									if(!grouped)
 										srcPayload[1] = GPMF_MAKE_TYPE_SIZE_COUNT(GPMF_KEY_TYPE(srcPayload[1]), sampleSize, storesamples);
-
+									
 
 									if (newpayload)
 									{
@@ -2936,9 +2936,9 @@ uint32_t GPMFWriteGetPayloadAndSession(	size_t ws_handle, uint32_t channel, uint
 											while (*moreGPMF)
 											{
 												movebytes += 8 + GPMF_DATA_SIZE(moreGPMF[1]);
-												moreGPMF += 2 + (GPMF_DATA_SIZE(moreGPMF[1]) >> 2);
+												moreGPMF += 2 + (GPMF_DATA_SIZE(moreGPMF[1])>>2);
 											}
-											memcpy(remainingPayload, srcdata, movebytes);
+											memcpy(remainingPayload, srcdata, movebytes); 
 
 											remainingPayload[movebytes >> 2] = GPMF_KEY_END;
 										}
@@ -2946,8 +2946,8 @@ uint32_t GPMFWriteGetPayloadAndSession(	size_t ws_handle, uint32_t channel, uint
 										srcPayload = remainingPayload;
 									}
 									else
-										srcPayload += (currentTotalSampleBytes + 3) >> 2;
-
+										srcPayload += (currentTotalSampleBytes+3) >> 2;
+									
 									if (GPMF_KEY_END != srcPayload[0])
 									{
 										currentTotalSampleBytes = 8 + GPMF_DATA_SIZE(srcPayload[1]);
@@ -2972,7 +2972,7 @@ uint32_t GPMFWriteGetPayloadAndSession(	size_t ws_handle, uint32_t channel, uint
 									}
 									else
 										dataSize = 0;
-									}
+								}
 								}
 							}
 						}
