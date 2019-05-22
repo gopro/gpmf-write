@@ -738,7 +738,7 @@ again:
 #endif
 	curr_size_longs = (curr_size_bytes+3)>>2;
 
-	if(curr_size_bytes <= 8 && bytelen < *alloc_size) // First samples
+	if(curr_size_bytes <= 8 && bytelen < *alloc_size && !(flags & GPMF_FLAGS_GROUPED)) // First samples
 	{
 		payload_buf[(bytelen)>>2] = GPMF_KEY_END; // clear non-aligned
 		memcpy(payload_buf, formatted, bytelen);
@@ -2671,21 +2671,15 @@ uint32_t GPMFWriteGetPayloadAndSession(	size_t ws_handle, uint32_t channel, uint
 					{
 						if (dm->last_nonsticky_fourcc != 0 && session_scale == 0)
 						{
-							//dm->payload_buffer[0] = dm->last_nonsticky_fourcc;
-							//dm->payload_buffer[1] = dm->last_nonsticky_typesize & 0xffff;
-							//dm->payload_buffer[2] = GPMF_KEY_END;
-							//dm->payload_curr_size = 8;
+							// indicate the a device has disconnected
+							uint32_t buf[4];
+							buf[0] = GPMF_KEY_EMPTY_PAYLOADS;
+							buf[1] = MAKEID('L', 4, 0, 1);
+							buf[2] = BYTESWAP32(1);
+							buf[3] = GPMF_KEY_END;
+							empty = 1;
 
-							{  // indicate the a device has disconnected
-								uint32_t buf[4];
-								buf[0] = GPMF_KEY_EMPTY_PAYLOADS;
-								buf[1] = MAKEID('L', 4, 0, 1);
-								buf[2] = BYTESWAP32(1);
-								buf[3] = GPMF_KEY_END;
-								empty = 1;
-
-								AppendFormattedMetadata(dm, buf, 12, (uint32_t)GPMF_FLAGS_STICKY_ACCUMULATE | GPMF_FLAGS_LOCKED, 1, 0); // Timing is Sticky, only one value per data stream, it is simpy updated if sent more than once.
-							}
+							AppendFormattedMetadata(dm, buf, 12, (uint32_t)GPMF_FLAGS_STICKY_ACCUMULATE | GPMF_FLAGS_LOCKED, 1, 0); // Timing is Sticky, only one value per data stream, it is simpy updated if sent more than once.
 						}
 					}
 
@@ -2828,7 +2822,7 @@ uint32_t GPMFWriteGetPayloadAndSession(	size_t ws_handle, uint32_t channel, uint
 					
 
 					
-					if (dm->payload_curr_size > 0)
+					if (dm->payload_curr_size > 0 || dm->last_nonsticky_fourcc)
 					{
 						//copy the preformatted device metadata into the output buffer
 						if (session_scale == 0)
@@ -2851,12 +2845,13 @@ uint32_t GPMFWriteGetPayloadAndSession(	size_t ws_handle, uint32_t channel, uint
 
 								sampleSize = GPMF_SAMPLE_SIZE(srcPayload[1]);
 
-								if (currentTotalSampleBytes == 8 || empty)
+								if (empty)  
 								{
 									if (newpayload)
 									{
-										ptr[0] = srcPayload[0]; // preseve TAG
-										ptr[1] = srcPayload[1] & 0xffff; // set the repeat to zero
+										ptr[0] = dm->last_nonsticky_fourcc;
+										ptr[1] = srcPayload[1] & 0xff00; // set the repeat to zero
+										ptr[1] |= GPMF_TYPE_EMPTY;
 										devicesizebytes += 8;
 										streamsizebytes += 8;
 										ptr += 2;
@@ -2867,6 +2862,7 @@ uint32_t GPMFWriteGetPayloadAndSession(	size_t ws_handle, uint32_t channel, uint
 									dataSize = DataSizeForSamples(srcPayload, storesamples, grouped);
 
 									remainingSize = currentTotalSampleBytes - dataSize;
+
 									remainingOffset = dataSize;
 
 									while (dataSize)
@@ -2976,7 +2972,7 @@ uint32_t GPMFWriteGetPayloadAndSession(	size_t ws_handle, uint32_t channel, uint
 								}
 							}
 						}
-						else // Session processing
+						else if (dm->payload_curr_size > 0)// Session processing
 						{
 							uint32_t last_tag = 0;
 							uint32_t tag = src_lptr[0];
@@ -3186,17 +3182,8 @@ uint32_t GPMFWriteGetPayloadAndSession(	size_t ws_handle, uint32_t channel, uint
 
 							if (samples2store >= currentSamples)
 							{
-								if (dm->last_nonsticky_fourcc == dm->payload_buffer[0]) 
-								{
-									dm->payload_buffer[1] &= 0xffff; // clear the repeat count for zero samples.
-									dm->payload_curr_size = 8;
-									dm->payload_buffer[2] = 0;
-								}
-								else
-								{
-									dm->payload_buffer[0] = GPMF_KEY_END;
-									dm->payload_curr_size = 0;
-								}
+								dm->payload_buffer[0] = GPMF_KEY_END;
+								dm->payload_curr_size = 0;
 								dm->payload_tick = 0;
 								dm->deltaTimeStamp[0] = 0;
 								dm->sampleCount[0] = 0;

@@ -67,6 +67,8 @@ typedef enum
 
 	GPMF_TYPE_NEST = 0, // used to nest more GPMF formatted metadata 
 
+	/* ------------- Internal usage only ------------- */
+	GPMF_TYPE_EMPTY = 0xfe, // used to distinguish between grouped metadata (like FACE) with no data (no faces detected) and an empty payload (FACE device reported no samples.)
 	GPMF_TYPE_ERROR = 0xff // used to report an error
 } GPMF_SampleType;
 
