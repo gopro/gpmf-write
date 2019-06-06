@@ -2,7 +2,7 @@
  *
  *	@brief GPMF formatter library
  *
- *	@version 1.1.1
+ *	@version 1.1.2
  *	
  *	(C) Copyright 2017 GoPro Inc (http://gopro.com/).
  *	
@@ -2634,7 +2634,7 @@ uint32_t GPMFWriteGetPayloadAndSession(	size_t ws_handle, uint32_t channel, uint
 									uint32_t smps = 0;
 									next_first_ts = computedTimeStamp;
 									ts_pos = 0;	
-									while (next_first_ts+dm->deltaTimeStamp[ts_pos] < latestTimeStamp && ts_pos < dm->payloadTimeStampCount)
+									while (next_first_ts < latestTimeStamp && ts_pos < dm->payloadTimeStampCount)
 									{
 										next_first_ts += dm->deltaTimeStamp[ts_pos];
 										smps += dm->sampleCount[ts_pos];
@@ -2642,7 +2642,7 @@ uint32_t GPMFWriteGetPayloadAndSession(	size_t ws_handle, uint32_t channel, uint
 										ts_pos++;
 									}
 
-									if (dm->sampleCount[ts_pos] > 1) // multiple sample stored with one timestamp, interpolate
+									if (dm->sampleCount[ts_pos] > 1 && ts_pos < dm->payloadTimeStampCount) // multiple sample stored with one timestamp, interpolate
 									{
 										uint32_t additionalSamples;
 										uint32_t additionalTicks;
@@ -2652,10 +2652,13 @@ uint32_t GPMFWriteGetPayloadAndSession(	size_t ws_handle, uint32_t channel, uint
 												delta = dm->deltaTimeStamp[ts_pos-1];
 										if (delta)
 										{
-											additionalSamples = (uint32_t)(((uint64_t)dm->sampleCount[ts_pos] * (latestTimeStamp - next_first_ts)) / delta);
-											additionalTicks = additionalSamples * delta / dm->sampleCount[ts_pos];
-											smps += additionalSamples;
-											next_first_ts += additionalTicks;
+											additionalSamples = (uint32_t)(((uint64_t)dm->sampleCount[ts_pos] * (latestTimeStamp - (next_first_ts - dm->deltaTimeStamp[ts_pos - 1]))) / delta);
+											if (additionalSamples < dm->sampleCount[ts_pos]) //otherwise math went wrong
+											{
+												additionalTicks = additionalSamples * delta / dm->sampleCount[ts_pos];
+												smps += additionalSamples;
+												next_first_ts += additionalTicks;
+											}
 										}
 									}
 

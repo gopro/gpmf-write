@@ -31,7 +31,7 @@
 
 //#define REALTICK
 
-#define ENABLE_SNR_A	1
+#define ENABLE_SNR_A	0
 #define ENABLE_SNR_B	1
 #define ENABLE_SNR_C	0
 
@@ -80,7 +80,7 @@ int main(int argc, char *argv[])
 	if (gpmfhandle && mp4_handle)
 	{
 		size_t handleT = 0;
-		char buffer[4*8192];
+		char buffer[6*8192];
 		uint32_t *payload=NULL, payload_size=0, samples, i;
 		uint32_t faketime,fakedata;
 //		uint32_t tmp;
@@ -99,7 +99,7 @@ int main(int argc, char *argv[])
 #endif
 #if ENABLE_SNR_B
 		size_t handleB = 0;
-		char sensorB[4096];
+		char sensorB[2*4096];
 		handleB = GPMFWriteStreamOpen(gpmfhandle, GPMF_CHANNEL_TIMED, GPMF_DEVICE_ID_CAMERA, "MyCamera", sensorB, sizeof(sensorB));
 		if (handleB == 0) goto cleanup;
 #endif
@@ -121,8 +121,8 @@ int main(int argc, char *argv[])
 		sprintf_s(txt, 80, "Sensor A");
    		GPMFWriteStreamStore(handleA, GPMF_KEY_STREAM_NAME, GPMF_TYPE_STRING_ASCII, (uint32_t)strlen(txt), 1, &txt, GPMF_FLAGS_STICKY);
    		//sprintf_s(txt, 80, "LB[6]"); // matching sensorAdata
-	//	sprintf_s(txt, 80, "Ff"); // matching sensorAdata
-//		GPMFWriteStreamStore(handleA, GPMF_KEY_TYPE, GPMF_TYPE_STRING_ASCII, (uint32_t)strlen(txt), 1, &txt, GPMF_FLAGS_STICKY);
+		sprintf_s(txt, 80, "Ff"); // matching sensorAdata
+		GPMFWriteStreamStore(handleA, GPMF_KEY_TYPE, GPMF_TYPE_STRING_ASCII, (uint32_t)strlen(txt), 1, &txt, GPMF_FLAGS_STICKY);
 #endif
 
 #if ENABLE_SNR_B
@@ -290,8 +290,8 @@ int main(int argc, char *argv[])
 		GPMFWriteGetPayload(gpmfhandle, GPMF_CHANNEL_SETTINGS, (uint32_t *)buffer, sizeof(buffer), &payload, &payload_size);
 
 
-		uint64_t tick = 33000, firsttick, payloadtick, nowtick;
-		uint64_t timestamp = 33100;
+		uint64_t tick = 3000, firsttick, payloadtick, nowtick;
+		uint64_t timestamp = 3000;
 #ifdef REALTICK
 		LARGE_INTEGER tt;
 		QueryPerformanceCounter(&tt);
@@ -301,9 +301,12 @@ int main(int argc, char *argv[])
 #endif
 		nowtick = tick;
 
+		int scen_samples = 0;
+		int gyro_samples = 0;
+
 		for (faketime = 0; faketime < 100; faketime++)
 		{
-			uint32_t delta[10] = { 99900, 100000, 99900, 100000, 99900, 99900, 100000, 100500, 100000, 100000 };
+			uint32_t delta[10] = { 100000, 100000, 100000, 100000, 100000, 100000, 100000, 100000, 100000, 100000 };
 			uint32_t data_per = 10;// +(rand() & 1);
 
 			payloadtick = tick;
@@ -322,32 +325,25 @@ int main(int argc, char *argv[])
 				{
 					case 0: //pretend no data	
 					{
-						short sdata[60],k;
+						short sdata[100],k;
 						static uint32_t count = 0, isocount = 0;
 
 #if ENABLE_SNR_B
-
-						for (k = 0; k < 20; k++)
+						int smps = 1;// (rand() % 10) + 15;
+						for (k = 0; k < smps; k++)
 						{
 							sdata[k * 3 + 0] = count;
 							sdata[k * 3 + 1] = count;
 							sdata[k * 3 + 2] = count++;
 						}
-
 						//timestamp = 67000 + tick + (rand() % 10) * 100;
-						err = GPMFWriteStreamStoreStamped(handleB, STR2FOURCC("GYRO"), GPMF_TYPE_UNSIGNED_SHORT, sizeof(uint16_t) * 3, k, sdata, GPMF_FLAGS_NONE, timestamp);
-	#if ENABLE_SNR_A
-						err = GPMFWriteStreamStoreStamped(handleA, STR2FOURCC("ISOE"), GPMF_TYPE_UNSIGNED_LONG, sizeof(uint32_t), 1, &isocount, GPMF_FLAGS_NONE, tick);
-						isocount++;
-	#endif
-
-
-						if (faketime == 0 && fakedata == 5)
-							GPMFWriteFlushWindow(gpmfhandle, GPMF_CHANNEL_TIMED, 160000); // Flush partial second
-
+						//if (count < 250 || count > 849)
+							//if (count > 1000 && count < 350) k = 0; 
+								err = GPMFWriteStreamStoreStamped(handleB, STR2FOURCC("GYRO"), GPMF_TYPE_UNSIGNED_SHORT, sizeof(uint16_t) * 3, k, sdata, GPMF_FLAGS_NONE, timestamp);	
 #endif
+
 						{
-							float fcount = (float)(count-1) / 100.0f;
+							float fcount = (float)(count) / 100.0f;
 							err = 0;
 							//samples = 1 + (rand() % 3); //1-3 values
 							//samples = 2;
@@ -356,7 +352,7 @@ int main(int argc, char *argv[])
 							//SNOW,0.14, URBA,0.27, INDO,0.30, WATR,0.13, VEGE,0.08, BEAC,0.08
 							//for (i = 0; i < samples; i++)
 
-#if ENABLE_SNR_A && 0
+#if ENABLE_SNR_A 
 							{
 								Adata[0].FOURCC = STR2FOURCC("SNOW");
 								Adata[0].value = fcount;
@@ -366,26 +362,36 @@ int main(int argc, char *argv[])
 								Adata[2].value = fcount;
 								Adata[3].FOURCC = STR2FOURCC("WATR");
 								Adata[3].value = fcount;
-								Adata[4].FOURCC = STR2FOURCC("VEGE");
+								Adata[4].FOURCC = STR2FOURCC("VEGE"); 
 								Adata[4].value = fcount;
 								Adata[5].FOURCC = STR2FOURCC("BEAC");
 								Adata[5].value = fcount;
 							}
+							scen_samples++;
 
-							//if (faketime > 5) samples = 0;
-									err = GPMFWriteStreamStoreStamped(handleA, STR2FOURCC("SnrA"), GPMF_TYPE_COMPLEX, sizeof(sensorAdata), samples, Adata, GPMF_FLAGS_GROUPED, tick);
+							if (scen_samples < 15 || scen_samples > 47)
+							{
+								if (scen_samples < 5 || (scen_samples > 45 && scen_samples < 50) || (scen_samples > 55 && scen_samples < 58)) samples = 0; else count++;
+								err = GPMFWriteStreamStoreStamped(handleA, STR2FOURCC("SnrA"), GPMF_TYPE_COMPLEX, sizeof(sensorAdata), samples, Adata, GPMF_FLAGS_GROUPED, timestamp);
+							}
 #endif
 
 
 #if ENABLE_SNR_C
 							uint8_t bval = rand();
-							err = GPMFWriteStreamStoreStamped(handleC, STR2FOURCC("CTRS"), GPMF_TYPE_UNSIGNED_BYTE, 1, 1, bdata, GPMF_FLAGS_NONE, tick); bval = rand();
-							err = GPMFWriteStreamStoreStamped(handleC, STR2FOURCC("SHRP"), GPMF_TYPE_UNSIGNED_BYTE, 1, 1, bdata, GPMF_FLAGS_NONE, tick); bval = rand();
-							err = GPMFWriteStreamStoreStamped(handleC, STR2FOURCC("MOTN"), GPMF_TYPE_UNSIGNED_BYTE, 1, 1, bdata, GPMF_FLAGS_NONE, tick); bval = rand();
-							err = GPMFWriteStreamStoreStamped(handleC, STR2FOURCC("3BDH"), GPMF_TYPE_UNSIGNED_BYTE, 1, 1, bdata, GPMF_FLAGS_NONE, tick); bval = rand();
-							err = GPMFWriteStreamStoreStamped(handleC, STR2FOURCC("3BDV"), GPMF_TYPE_UNSIGNED_BYTE, 1, 1, bdata, GPMF_FLAGS_NONE, tick);
+							err = GPMFWriteStreamStoreStamped(handleC, STR2FOURCC("CTRS"), GPMF_TYPE_UNSIGNED_BYTE, 1, 1, &bval, GPMF_FLAGS_NONE, tick); bval = rand();
+							err = GPMFWriteStreamStoreStamped(handleC, STR2FOURCC("SHRP"), GPMF_TYPE_UNSIGNED_BYTE, 1, 1, &bval, GPMF_FLAGS_NONE, tick); bval = rand();
+							err = GPMFWriteStreamStoreStamped(handleC, STR2FOURCC("MOTN"), GPMF_TYPE_UNSIGNED_BYTE, 1, 1, &bval, GPMF_FLAGS_NONE, tick); bval = rand();
+							err = GPMFWriteStreamStoreStamped(handleC, STR2FOURCC("3BDH"), GPMF_TYPE_UNSIGNED_BYTE, 1, 1, &bval, GPMF_FLAGS_NONE, tick); bval = rand();
+							err = GPMFWriteStreamStoreStamped(handleC, STR2FOURCC("3BDV"), GPMF_TYPE_UNSIGNED_BYTE, 1, 1, &bval, GPMF_FLAGS_NONE, tick);
 #endif
 						}
+
+
+						if (faketime == 0 && fakedata == 3) {
+							GPMFWriteFlushWindow(gpmfhandle, GPMF_CHANNEL_TIMED, 160100); // Flush partial second
+						}
+
 					}
 						break;
 /*
@@ -489,8 +495,26 @@ int main(int argc, char *argv[])
 #ifndef REALTICK
 				//tick += samples * 10;
 				//tick += 100 + (rand() & 17);
+
+				uint64_t lastts = timestamp;
 				timestamp += delta[fakedata];
-				tick += 100000; 
+
+				//if ((rand() % 50) == 1)
+				//	timestamp += 5000;
+
+				/*static int inc = 1;
+				if ((rand() % 15) == 1)
+				{
+					if ((timestamp-lastts) < 100100)
+						inc++;
+					else
+						inc--;
+				}
+				timestamp += inc;
+				*/
+
+				timestamp = lastts + 100000;// +(rand() % 21) - 10;
+				tick += 100000;
 
 				//if (tick == 5400) 
 				//	tick += 9;
@@ -500,7 +524,7 @@ int main(int argc, char *argv[])
 			}
 
 			//nowtick = payloadtick + (tick - payloadtick) * 8 / 10; // test by reading out only the last half samples
-			nowtick = tick-100001; // test by reading out only the last half samples
+			nowtick = tick;// -990001; // test by reading out only the last half samples
 			//nowtick += 100; // test by reading out only the last half samples
 			GPMFWriteGetPayloadWindow(gpmfhandle, GPMF_CHANNEL_TIMED, (uint32_t *)buffer, sizeof(buffer), &payload, &payload_size, nowtick);
 			//GPMFWriteGetPayloadAndSession(gpmfhandle, GPMF_CHANNEL_TIMED, (uint32_t *)buffer, sizeof(buffer), NULL, NULL, &payload, &payload_size, 1, nowtick);
@@ -531,9 +555,13 @@ int main(int argc, char *argv[])
 
 	cleanup:
 
-		if (mp4_handle) CloseExport(mp4_handle);
+		if (mp4_handle) CloseExport(mp4_handle); 
+#if ENABLE_SNR_A
 		if (handleA) GPMFWriteStreamClose(handleA);
+#endif
+#if ENABLE_SNR_B
 		if (handleB) GPMFWriteStreamClose(handleB);
+#endif
 
 		GPMFWriteServiceClose(gpmfhandle);
 	}
