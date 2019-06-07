@@ -49,7 +49,7 @@ typedef enum
 } MetadataChannel;
 
 
-#define MAX_TIMESTAMPS		32
+#define MAX_TIMESTAMPS		10
 #define LARGESTTIMESTAMP	0xffffffffffffffff
 
 #define FLOAT_PRECISION float

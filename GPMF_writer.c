@@ -35,7 +35,7 @@
 #endif
 #define ERR_MSG gp_print
 
-#define MDA_DEBUG 0
+#define MDA_DEBUG 1
 
 #if !_WINDOWS
 #define strcpy_s(a,b,c) strcpy(a,c)
@@ -2634,7 +2634,7 @@ uint32_t GPMFWriteGetPayloadAndSession(	size_t ws_handle, uint32_t channel, uint
 									uint32_t smps = 0;
 									next_first_ts = computedTimeStamp;
 									ts_pos = 0;	
-									while (next_first_ts < latestTimeStamp && ts_pos < dm->payloadTimeStampCount)
+									while ((next_first_ts + dm->deltaTimeStamp[ts_pos]) < latestTimeStamp && ts_pos < dm->payloadTimeStampCount)
 									{
 										next_first_ts += dm->deltaTimeStamp[ts_pos];
 										smps += dm->sampleCount[ts_pos];
@@ -2642,23 +2642,12 @@ uint32_t GPMFWriteGetPayloadAndSession(	size_t ws_handle, uint32_t channel, uint
 										ts_pos++;
 									}
 
-									if (dm->sampleCount[ts_pos] > 1 && ts_pos < dm->payloadTimeStampCount) // multiple sample stored with one timestamp, interpolate
+									if (ts_pos < dm->payloadTimeStampCount)
 									{
-										uint32_t additionalSamples;
-										uint32_t additionalTicks;
-										uint32_t delta = dm->deltaTimeStamp[ts_pos];
-										if(delta == 0) 
-											if(ts_pos > 1)
-												delta = dm->deltaTimeStamp[ts_pos-1];
-										if (delta)
+										while(next_first_ts < latestTimeStamp && dm->sampleCount[ts_pos] > 0)
 										{
-											additionalSamples = (uint32_t)(((uint64_t)dm->sampleCount[ts_pos] * (latestTimeStamp - (next_first_ts - dm->deltaTimeStamp[ts_pos - 1]))) / delta);
-											if (additionalSamples < dm->sampleCount[ts_pos]) //otherwise math went wrong
-											{
-												additionalTicks = additionalSamples * delta / dm->sampleCount[ts_pos];
-												smps += additionalSamples;
-												next_first_ts += additionalTicks;
-											}
+											next_first_ts += dm->deltaTimeStamp[ts_pos] / dm->sampleCount[ts_pos];
+											smps++;
 										}
 									}
 

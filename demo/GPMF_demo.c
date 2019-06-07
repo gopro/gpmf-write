@@ -290,8 +290,8 @@ int main(int argc, char *argv[])
 		GPMFWriteGetPayload(gpmfhandle, GPMF_CHANNEL_SETTINGS, (uint32_t *)buffer, sizeof(buffer), &payload, &payload_size);
 
 
-		uint64_t tick = 3000, firsttick, payloadtick, nowtick;
-		uint64_t timestamp = 3000;
+		uint64_t tick = 111, firsttick, payloadtick, nowtick;
+		uint64_t timestamp = 111;
 #ifdef REALTICK
 		LARGE_INTEGER tt;
 		QueryPerformanceCounter(&tt);
@@ -306,8 +306,8 @@ int main(int argc, char *argv[])
 
 		for (faketime = 0; faketime < 100; faketime++)
 		{
-			uint32_t delta[10] = { 100000, 100000, 100000, 100000, 100000, 100000, 100000, 100000, 100000, 100000 };
-			uint32_t data_per = 10;// +(rand() & 1);
+			uint32_t delta[10] = { 33366, 33367, 33367, 33366, 33367, 33367, 33366, 33367, 33367, 33366 };
+			uint32_t data_per = 30;// +(rand() & 1);
 
 			payloadtick = tick;
 			for (fakedata = 0; fakedata < data_per; fakedata++)
@@ -388,9 +388,9 @@ int main(int argc, char *argv[])
 						}
 
 
-						if (faketime == 0 && fakedata == 3) {
-							GPMFWriteFlushWindow(gpmfhandle, GPMF_CHANNEL_TIMED, 160100); // Flush partial second
-						}
+						//if (faketime == 0 && fakedata == 3) {
+						//	GPMFWriteFlushWindow(gpmfhandle, GPMF_CHANNEL_TIMED, 33367*3); // Flush partial second
+						//}
 
 					}
 						break;
@@ -497,7 +497,7 @@ int main(int argc, char *argv[])
 				//tick += 100 + (rand() & 17);
 
 				uint64_t lastts = timestamp;
-				timestamp += delta[fakedata];
+				timestamp += delta[fakedata%10];
 
 				//if ((rand() % 50) == 1)
 				//	timestamp += 5000;
@@ -513,8 +513,8 @@ int main(int argc, char *argv[])
 				timestamp += inc;
 				*/
 
-				timestamp = lastts + 100000;// +(rand() % 21) - 10;
-				tick += 100000;
+				timestamp = lastts + 33366;// +(rand() % 21) - 10;
+				tick += 33366;
 
 				//if (tick == 5400) 
 				//	tick += 9;
@@ -524,16 +524,22 @@ int main(int argc, char *argv[])
 			}
 
 			//nowtick = payloadtick + (tick - payloadtick) * 8 / 10; // test by reading out only the last half samples
-			nowtick = tick;// -990001; // test by reading out only the last half samples
+			nowtick = tick - 1000000; // test by reading out only the last half samples
 			//nowtick += 100; // test by reading out only the last half samples
-			GPMFWriteGetPayloadWindow(gpmfhandle, GPMF_CHANNEL_TIMED, (uint32_t *)buffer, sizeof(buffer), &payload, &payload_size, nowtick);
-			//GPMFWriteGetPayloadAndSession(gpmfhandle, GPMF_CHANNEL_TIMED, (uint32_t *)buffer, sizeof(buffer), NULL, NULL, &payload, &payload_size, 1, nowtick);
-			//GPMFWriteGetPayload(gpmfhandle, GPMF_CHANNEL_TIMED, (uint32_t *)buffer, sizeof(buffer), &payload, &payload_size);
+			if (nowtick > 1000000)
+			{
+				GPMFWriteGetPayloadWindow(gpmfhandle, GPMF_CHANNEL_TIMED, (uint32_t *)buffer, sizeof(buffer), &payload, &payload_size, nowtick);
+				//GPMFWriteGetPayloadAndSession(gpmfhandle, GPMF_CHANNEL_TIMED, (uint32_t *)buffer, sizeof(buffer), NULL, NULL, &payload, &payload_size, 1, nowtick);
+				//GPMFWriteGetPayload(gpmfhandle, GPMF_CHANNEL_TIMED, (uint32_t *)buffer, sizeof(buffer), &payload, &payload_size);
 
-			printf("payload_size = %d\n", payload_size);
-			ExportPayload(mp4_handle, payload, payload_size);
-
-/*
+				printf("payload_size = %d\n", payload_size);
+				ExportPayload(mp4_handle, payload, payload_size);
+			}
+			else
+			{
+				GPMFWriteFlushWindow(gpmfhandle, GPMF_CHANNEL_TIMED, nowtick); // Flush partial second
+			}
+	/*
 			GPMFWriteGetPayloadWindow(gpmfhandle, GPMF_CHANNEL_TIMED, (uint32_t *)buffer, sizeof(buffer), &payload, &payload_size, nowtick+1);
 
 			printf("payload_size = %d\n", payload_size);
