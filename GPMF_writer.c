@@ -605,7 +605,8 @@ void AppendFormattedMetadata(device_metadata *dm, uint32_t *formatted, uint32_t 
 		*ptr64 = BYTESWAP64(TimeStamp);		
 	//	TimeStamp = 0;  // with this commented out it will store both jitter removed and raw timestamps.
 
-		for (uint32_t i = 0; i < sample_count; i++)
+		uint32_t i = 0;
+		for (i = 0; i < sample_count; i++)
 		{
 			buf[0] = GPMF_KEY_TIME_STAMPS;
 			buf[1] = MAKEID('J', 8, 0, 1);
@@ -1032,7 +1033,8 @@ void GPMFWriteStreamReset(size_t dm_handle)
 		
 		// clear timestamps
 		dm->payloadTimeStampCount = 0;
-		for(uint32_t pos=0; pos<MAX_TIMESTAMPS; pos++)
+		uint32_t pos = 0;
+		for(pos=0; pos<MAX_TIMESTAMPS; pos++)
 		{
 			dm->deltaTimeStamp[pos] = 0;
 			dm->sampleCount[pos] = 0;
