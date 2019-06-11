@@ -49,7 +49,7 @@ typedef enum
 } MetadataChannel;
 
 
-#define MAX_TIMESTAMPS		10
+#define MAX_TIMESTAMPS		32
 #define LARGESTTIMESTAMP	0xffffffffffffffff
 
 #define FLOAT_PRECISION float
@@ -84,6 +84,7 @@ typedef struct device_metadata
 	uint16_t sampleCount[MAX_TIMESTAMPS];
 	uint64_t firstTimeStamp;
 	uint64_t lastTimeStamp;
+	uint64_t computedTimeStamp;
 	uint32_t payloadTimeStampCount;
 	uint32_t quantize;
 	uint32_t groupedFourCC;

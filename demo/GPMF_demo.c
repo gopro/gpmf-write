@@ -34,6 +34,7 @@
 #define ENABLE_SNR_A	0
 #define ENABLE_SNR_B	1
 #define ENABLE_SNR_C	0
+#define ENABLE_SNR_D	1
 
 extern void PrintGPMF(GPMF_stream *);
 
@@ -109,6 +110,12 @@ int main(int argc, char *argv[])
 		handleC = GPMFWriteStreamOpen(gpmfhandle, GPMF_CHANNEL_TIMED, GPMF_DEVICE_ID_CAMERA, "MyCamera", sensorC, sizeof(sensorC));
 		if (handleC == 0) goto cleanup;
 #endif
+#if ENABLE_SNR_D
+		size_t handleD = 0;
+		char sensorD[4096];
+		handleD = GPMFWriteStreamOpen(gpmfhandle, GPMF_CHANNEL_TIMED, GPMF_DEVICE_ID_CAMERA, "MyCamera", sensorD, sizeof(sensorD));
+		if (handleD == 0) goto cleanup;
+#endif
 
 		char sensorT[4096];
 		handleT = GPMFWriteStreamOpen(gpmfhandle, GPMF_CHANNEL_SETTINGS, GPMF_DEVICE_ID_CAMERA, "Global", sensorT, sizeof(sensorT));
@@ -136,10 +143,18 @@ int main(int argc, char *argv[])
 
 #if ENABLE_SNR_C
 		sprintf_s(txt, 80, "Sensor C");
-	//	sprintf_s(txt, 80, "Sensor C - Compressed");
+		//	sprintf_s(txt, 80, "Sensor C - Compressed");
 		GPMFWriteStreamStore(handleC, GPMF_KEY_STREAM_NAME, GPMF_TYPE_STRING_ASCII, (uint32_t)strlen(txt), 1, &txt, GPMF_FLAGS_STICKY);
-	//	tmp = 1; // quantize by a larger number for more compress, use 1 for lossless (but it may not compress much.)//
-	//	GPMFWriteStreamStore(handleC, GPMF_KEY_QUANTIZE, GPMF_TYPE_UNSIGNED_LONG, sizeof(tmp), 1, &tmp, GPMF_FLAGS_STICKY);
+		//	tmp = 1; // quantize by a larger number for more compress, use 1 for lossless (but it may not compress much.)//
+		//	GPMFWriteStreamStore(handleC, GPMF_KEY_QUANTIZE, GPMF_TYPE_UNSIGNED_LONG, sizeof(tmp), 1, &tmp, GPMF_FLAGS_STICKY);
+#endif
+
+#if ENABLE_SNR_D
+		sprintf_s(txt, 80, "Sensor D");
+		//	sprintf_s(txt, 80, "Sensor C - Compressed");
+		GPMFWriteStreamStore(handleD, GPMF_KEY_STREAM_NAME, GPMF_TYPE_STRING_ASCII, (uint32_t)strlen(txt), 1, &txt, GPMF_FLAGS_STICKY);
+		//	tmp = 1; // quantize by a larger number for more compress, use 1 for lossless (but it may not compress much.)//
+		//	GPMFWriteStreamStore(handleC, GPMF_KEY_QUANTIZE, GPMF_TYPE_UNSIGNED_LONG, sizeof(tmp), 1, &tmp, GPMF_FLAGS_STICKY);
 #endif
 
 		//Flush any stale data before starting video capture.
@@ -290,8 +305,8 @@ int main(int argc, char *argv[])
 		GPMFWriteGetPayload(gpmfhandle, GPMF_CHANNEL_SETTINGS, (uint32_t *)buffer, sizeof(buffer), &payload, &payload_size);
 
 
-		uint64_t tick = 111, firsttick, payloadtick, nowtick;
-		uint64_t timestamp = 111;
+		uint64_t tick = 11111, firsttick, payloadtick, nowtick;
+		uint64_t timestamp = 11111;
 #ifdef REALTICK
 		LARGE_INTEGER tt;
 		QueryPerformanceCounter(&tt);
@@ -304,7 +319,7 @@ int main(int argc, char *argv[])
 		int scen_samples = 0;
 		int gyro_samples = 0;
 
-		for (faketime = 0; faketime < 100; faketime++)
+		for (faketime = 0; faketime < 1000; faketime++)
 		{
 			uint32_t delta[10] = { 33366, 33367, 33367, 33366, 33367, 33367, 33366, 33367, 33367, 33366 };
 			uint32_t data_per = 30;// +(rand() & 1);
@@ -326,7 +341,8 @@ int main(int argc, char *argv[])
 					case 0: //pretend no data	
 					{
 						short sdata[100],k;
-						static uint32_t count = 0, isocount = 0;
+						long ldata[5];
+						static uint32_t count = 0, isocount = 0,gps = 0;
 
 #if ENABLE_SNR_B
 						int smps = 1;// (rand() % 10) + 15;
@@ -339,7 +355,40 @@ int main(int argc, char *argv[])
 						//timestamp = 67000 + tick + (rand() % 10) * 100;
 						//if (count < 250 || count > 849)
 							//if (count > 1000 && count < 350) k = 0; 
-								err = GPMFWriteStreamStoreStamped(handleB, STR2FOURCC("GYRO"), GPMF_TYPE_UNSIGNED_SHORT, sizeof(uint16_t) * 3, k, sdata, GPMF_FLAGS_NONE, timestamp);	
+						err = GPMFWriteStreamStoreStamped(handleB, STR2FOURCC("GYRO"), GPMF_TYPE_UNSIGNED_SHORT, sizeof(uint16_t) * 3, k, sdata, GPMF_FLAGS_NONE, timestamp);
+#endif
+
+#if ENABLE_SNR_D
+						if ((fakedata % 2) == 0)
+						{
+							ldata[0] = gps;
+							ldata[1] = gps;
+							ldata[2] = gps;
+							ldata[3] = gps;
+							ldata[4] = gps++;
+
+							//timestamp = 67000 + tick + (rand() % 10) * 100;
+							//if (count < 250 || count > 849)
+								//if (count > 1000 && count < 350) k = 0; 
+
+							static uint64_t lastts = 0;
+							int64_t sts = (int64_t)timestamp;
+							int tsoffset = ((rand() & 0x7fff) - 16383) * 2;
+							//int tsoffset = ((rand() & 0x7fff) - 16383) / 10;
+							if (sts + tsoffset < 0)
+								sts = 100;
+							else
+								sts += tsoffset;
+
+
+							uint64_t newts = sts;
+							if (newts <= lastts)
+								newts = lastts + 100;
+						
+							lastts = newts;
+
+							err = GPMFWriteStreamStoreStamped(handleD, STR2FOURCC("GPS5"), GPMF_TYPE_SIGNED_LONG, sizeof(uint32_t) * 1, 1, ldata, GPMF_FLAGS_NONE, newts);
+						}
 #endif
 
 						{
@@ -497,7 +546,7 @@ int main(int argc, char *argv[])
 				//tick += 100 + (rand() & 17);
 
 				uint64_t lastts = timestamp;
-				timestamp += delta[fakedata%10];
+				//timestamp += delta[fakedata%10];
 
 				//if ((rand() % 50) == 1)
 				//	timestamp += 5000;
@@ -513,10 +562,13 @@ int main(int argc, char *argv[])
 				timestamp += inc;
 				*/
 
-				timestamp = lastts + 33366;// +(rand() % 21) - 10;
-				tick += 33366;
+				timestamp = tick = payloadtick + (fakedata + 1) * 1000000 / data_per;
 
-				//if (tick == 5400) 
+
+			//	timestamp = lastts + 33366;// +(rand() % 21) - 10;
+			//	tick += 33366;
+
+				//
 				//	tick += 9;
 #else
 				Sleep(2 * samples); // << to help test the time stamps.
@@ -524,9 +576,11 @@ int main(int argc, char *argv[])
 			}
 
 			//nowtick = payloadtick + (tick - payloadtick) * 8 / 10; // test by reading out only the last half samples
-			nowtick = tick - 1000000; // test by reading out only the last half samples
+			nowtick = tick - 1000110; // test by reading out only the last half samples
+		//	nowtick = tick - (rand()%100000); // test by reading out only the last half samples
 			//nowtick += 100; // test by reading out only the last half samples
 			if (nowtick > 1000000)
+		//	if (nowtick > 20000)
 			{
 				GPMFWriteGetPayloadWindow(gpmfhandle, GPMF_CHANNEL_TIMED, (uint32_t *)buffer, sizeof(buffer), &payload, &payload_size, nowtick);
 				//GPMFWriteGetPayloadAndSession(gpmfhandle, GPMF_CHANNEL_TIMED, (uint32_t *)buffer, sizeof(buffer), NULL, NULL, &payload, &payload_size, 1, nowtick);
