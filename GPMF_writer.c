@@ -2869,8 +2869,43 @@ uint32_t GPMFWriteGetPayloadAndSession(	size_t ws_handle, uint32_t channel, uint
 
 									if (newpayload)
 									{
-										if (dm->quantize && payloadAddition > 100 && !grouped)
-											payloadAddition = GPMFCompress(ptr, srcPayload, payloadAddition, dm->quantize);
+										if (dm->quantize && payloadAddition > 100)// && !grouped)
+										{
+											if (grouped)
+											{
+												uint32_t i;
+												uint32_t *sample_group = srcPayload;
+												payloadAddition = 0;
+
+												//recompute the size for samples2store grouped samples.
+												for (i = 0; i < storesamples; i++)
+												{
+													uint32_t groupbytes = GPMF_DATA_SIZE(sample_group[1]);
+													payloadAddition += GPMFCompress(ptr, sample_group, 8+groupbytes, dm->quantize);
+
+													if (payloadAddition & 3)
+													{
+														uint8_t *ptr8 = (uint8_t *)ptr + payloadAddition;
+														if ((payloadAddition & 3) <= 3) *ptr8++ = 0;
+														if ((payloadAddition & 3) <= 2) *ptr8++ = 0;
+														if ((payloadAddition & 3) <= 1) *ptr8++ = 0;
+														payloadAddition += 3;
+														payloadAddition &= 0xfffffffc;
+													}
+
+													devicesizebytes += payloadAddition;
+													streamsizebytes += payloadAddition;
+													ptr += (payloadAddition >> 2);
+													payloadAddition = 0;
+
+													sample_group += (8 + groupbytes) >> 2;
+												}
+											}
+											else
+											{
+												payloadAddition = GPMFCompress(ptr, srcPayload, payloadAddition, dm->quantize);
+											}
+										}
 										else
 											memcpy(ptr, srcPayload, payloadAddition);
 
