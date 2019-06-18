@@ -2,9 +2,9 @@
  * 
  *  @brief GPMF Parser library include
  * 
- *  @version 1.1.1
+ *  @version 1.2.0
  * 
- *  (C) Copyright 2017 GoPro Inc (http://gopro.com/).
+ *  (C) Copyright 2017-2019 GoPro Inc (http://gopro.com/).
  *
  *  Licensed under either:
  *  - Apache License, Version 2.0, http://www.apache.org/licenses/LICENSE-2.0  
@@ -108,6 +108,9 @@ typedef enum GPMFKey // TAG in all caps are GoPro preserved (are defined by GoPr
 	GPMF_KEY_STREAM_NAME =		MAKEID('S','T','N','M'),//STNM - human readable telemetry/metadata stream type/name (char string)
 	GPMF_KEY_SI_UNITS =			MAKEID('S','I','U','N'),//SIUN - Display string for metadata units where inputs are in SI units "uT","rad/s","km/s","m/s","mm/s" etc.
 	GPMF_KEY_UNITS =			MAKEID('U','N','I','T'),//UNIT - Freedform display string for metadata units (char sting like "RPM", "MPH", "km/h", etc)
+	GPMF_KEY_MATRIX =			MAKEID('M','T','R','X'),//MTRX - 2D matrix for any sensor calibration.
+	GPMF_KEY_ORIENTATION_IN =	MAKEID('O','R','I','N'),//ORIN - input 'n' channel data orientation, lowercase is negative, e.g. "Zxy" or "ABGR".
+	GPMF_KEY_ORIENTATION_OUT =	MAKEID('O','R','I','O'),//ORIO - output 'n' channel data orientation, e.g. "XYZ" or "RGBA".
 	GPMF_KEY_SCALE =			MAKEID('S','C','A','L'),//SCAL - divisor for input data to scale to the correct units.
 	GPMF_KEY_TYPE =				MAKEID('T','Y','P','E'),//TYPE - Type define for complex data structures
 	GPMF_KEY_TOTAL_SAMPLES =	MAKEID('T','S','M','P'),//TOTL - Total Sample Count including the current payload 	
