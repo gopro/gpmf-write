@@ -35,7 +35,7 @@
 #endif
 #define ERR_MSG gp_print
 
-#define MDA_DEBUG 1
+#define MDA_DEBUG 0
 
 #if !_WINDOWS
 #define strcpy_s(a,b,c) strcpy(a,c)
@@ -590,7 +590,21 @@ void AppendFormattedMetadata(device_metadata *dm, uint32_t *formatted, uint32_t 
 
 	if (flags & GPMF_FLAGS_GROUPED)
 	{
-		dm->groupedFourCC = tag;
+		if (dm->groupedFourCC == 0)
+		{
+			GPMF_SampleType type = GPMF_SAMPLE_TYPE(typesize);
+			if (type != GPMF_TYPE_COMPLEX) // COMPLEX should have it own TYPE stored already, otherwise add a TYPE for GROUPED data, just-in-case GPMF_TYPE_GROUPED is used
+			{
+				uint32_t buf[4];
+				buf[0] = GPMF_KEY_TYPE;
+				buf[1] = GPMF_MAKE_TYPE_SIZE_COUNT(GPMF_TYPE_STRING_ASCII, 1, 1);
+				buf[2] = MAKEID(type, 0, 0, 0);
+				buf[3] = GPMF_KEY_END;
+
+				AppendFormattedMetadata(dm, buf, 12, GPMF_FLAGS_STICKY, 1, 0); // Timing is Sticky, only one value per data stream, it is simpy updated if sent more than once.	
+			}
+			dm->groupedFourCC = tag;
+		}
 		sample_count = 1;
 	}
 
@@ -617,7 +631,7 @@ void AppendFormattedMetadata(device_metadata *dm, uint32_t *formatted, uint32_t 
 			AppendFormattedMetadata(dm, buf, 16, stampflags, 1, 0); // Timing is Sticky, only one value per data stream, it is simpy updated if sent more than once.	
 		}
 	}
-	
+
 again:
 	if (flags & GPMF_FLAGS_STICKY)
 	{   //sticky
@@ -2863,7 +2877,7 @@ uint32_t GPMFWriteGetPayloadAndSession(	size_t ws_handle, uint32_t channel, uint
 									payloadAddition = dataSize;
 
 									if(!grouped)
-										srcPayload[1] = GPMF_MAKE_TYPE_SIZE_COUNT(GPMF_KEY_TYPE(srcPayload[1]), sampleSize, storesamples);
+										srcPayload[1] = GPMF_MAKE_TYPE_SIZE_COUNT(GPMF_SAMPLE_TYPE(srcPayload[1]), sampleSize, storesamples);
 									
 
 									if (newpayload)
@@ -2941,7 +2955,7 @@ uint32_t GPMFWriteGetPayloadAndSession(	size_t ws_handle, uint32_t channel, uint
 										}
 										else
 										{
-											srcPayload[1] = GPMF_MAKE_TYPE_SIZE_COUNT(GPMF_KEY_TYPE(srcPayload[1]), sampleSize, remainingSamples);
+											srcPayload[1] = GPMF_MAKE_TYPE_SIZE_COUNT(GPMF_SAMPLE_TYPE(srcPayload[1]), sampleSize, remainingSamples);
 											remainingPayload[0] = srcPayload[0];
 											remainingPayload[1] = srcPayload[1];
 
@@ -3009,180 +3023,211 @@ uint32_t GPMFWriteGetPayloadAndSession(	size_t ws_handle, uint32_t channel, uint
 								uint32_t samples = GPMF_SAMPLES(src_lptr[1]);
 								if ((samples >= (session_scale * 2) && session_scale) || GPMF_SAMPLE_TYPE(src_lptr[1]) == GPMF_TYPE_NEST || tag == last_tag) //DAN20160609 Scale data that is twice or more the the target sample rate.
 								{
-									int64_t averagebuf[10];
-									double *d_averagebuf = (double *)averagebuf;
-									int count = 0, average = 0;
-									float		*favg = (float *)averagebuf;
-									int32_t		*lavg = (int32_t *)averagebuf;
-									uint32_t	*Lavg = (uint32_t *)averagebuf;
-									int16_t		*savg = (int16_t *)averagebuf;
-									uint16_t	*Savg = (uint16_t *)averagebuf;
-									uint32_t newscale = (samples + (session_scale / 2)) / session_scale;
-									uint8_t *bptr = (uint8_t *)ptr;
-									int samples_out = 0;
-									int sample_size = GPMF_SAMPLE_SIZE(src_lptr[1]);
-									int sample_type = GPMF_SAMPLE_TYPE(src_lptr[1]);
-
-									if (GPMF_SAMPLE_TYPE(src_lptr[1]) == GPMF_TYPE_NEST || tag == last_tag)
+									if (grouped)
 									{
-										src_lptr += (8 + GPMF_DATA_SIZE(src_lptr[1])) >> 2;
+										uint32_t datasize = 0;
+										uint32_t groupbytes = GPMF_DATA_SIZE(src_lptr[1]);
+										uint32_t *sample_group = src_lptr;
+										if (++dm->session_scale_count <= 1)
+										{
+											if (dm->quantize)
+											{
+												char *cptr = (char *)src_lptr;
+												datasize += GPMFCompress(ptr, sample_group, 8 + groupbytes, dm->quantize);
+												cptr[8] = GPMF_TYPE_GROUPED;
+											}
+											else
+											{
+												char *cptr = (char *)src_lptr;
+												datasize = 8 + GPMF_DATA_SIZE(src_lptr[1]);
+												memcpy(ptr, src_lptr, datasize);
+												cptr[4] = GPMF_TYPE_GROUPED;
+											}
+											devicesizebytes += datasize;
+											streamsizebytes += datasize;
+											ptr += (datasize) >> 2;
+										}
+										src_lptr += (groupbytes + 8) >> 2;
+
+										src_bptr = (uint8_t *)src_lptr;
 									}
 									else
 									{
-										memcpy(bptr, src_bptr, 8);
-										bptr += 8;
-										src_bptr += 8;
-										src_lptr += (8 + GPMF_DATA_SIZE(src_lptr[1])) >> 2;
+										int64_t averagebuf[10];
+										double *d_averagebuf = (double *)averagebuf;
+										int count = 0, average = 0;
+										float		*favg = (float *)averagebuf;
+										int32_t		*lavg = (int32_t *)averagebuf;
+										uint32_t	*Lavg = (uint32_t *)averagebuf;
+										int16_t		*savg = (int16_t *)averagebuf;
+										uint16_t	*Savg = (uint16_t *)averagebuf;
+										uint32_t newscale = (samples + (session_scale / 2)) / session_scale;
+										uint8_t *bptr = (uint8_t *)ptr;
+										int samples_out = 0;
+										int sample_size = GPMF_SAMPLE_SIZE(src_lptr[1]);
+										int sample_type = GPMF_SAMPLE_TYPE(src_lptr[1]);
 
-
-										if (sizeof(averagebuf) > sample_size &&
-											(sample_type == GPMF_TYPE_FLOAT || sample_type == GPMF_TYPE_SIGNED_SHORT || sample_type == GPMF_TYPE_UNSIGNED_SHORT || sample_type == GPMF_TYPE_SIGNED_LONG || sample_type == GPMF_TYPE_UNSIGNED_LONG))
+										if (GPMF_SAMPLE_TYPE(src_lptr[1]) == GPMF_TYPE_NEST || tag == last_tag)
 										{
-											average = 1;
-
-											memset(averagebuf, 0, sizeof(averagebuf)), count = 0;
+											src_lptr += (8 + GPMF_DATA_SIZE(src_lptr[1])) >> 2;
 										}
-
-										if (newscale <= 1) newscale = 2;				//DAN20160609 support the new Session scaling
-
-										while (samples--)
+										else
 										{
-											if (++dm->session_scale_count >= newscale)  //DAN20160609 support the new Session scaling
+											memcpy(bptr, src_bptr, 8);
+											bptr += 8;
+											src_bptr += 8;
+											src_lptr += (8 + GPMF_DATA_SIZE(src_lptr[1])) >> 2;
+
+
+											if (sizeof(averagebuf) > sample_size &&
+												(sample_type == GPMF_TYPE_FLOAT || sample_type == GPMF_TYPE_SIGNED_SHORT || sample_type == GPMF_TYPE_UNSIGNED_SHORT || sample_type == GPMF_TYPE_SIGNED_LONG || sample_type == GPMF_TYPE_UNSIGNED_LONG))
 											{
-												dm->session_scale_count = 0;
-												if (average && count)
+												average = 1;
+
+												memset(averagebuf, 0, sizeof(averagebuf)), count = 0;
+											}
+
+											if (newscale <= 1) newscale = 2;				//DAN20160609 support the new Session scaling
+
+											while (samples--)
+											{
+												if (++dm->session_scale_count >= newscale)  //DAN20160609 support the new Session scaling
+												{
+													dm->session_scale_count = 0;
+													if (average && count)
+													{
+														int looplen = 0, i;
+														switch (sample_type)
+														{
+														case GPMF_TYPE_FLOAT:
+															looplen = sample_size / sizeof(float);
+															for (i = 0; i < looplen; i++)
+															{
+																d_averagebuf[i] /= (double)count;
+																favg[i] = (float)d_averagebuf[i];
+																Lavg[i] = BYTESWAP32(Lavg[i]);
+															}
+															break;
+														case GPMF_TYPE_SIGNED_SHORT:
+															looplen = sample_size / sizeof(short);
+															for (i = 0; i < looplen; i++)
+															{
+																averagebuf[i] /= count;
+																savg[i] = (int16_t)BYTESWAP16(averagebuf[i]);
+															}
+															break;
+														case GPMF_TYPE_UNSIGNED_SHORT:
+															looplen = sample_size / sizeof(short);
+															for (i = 0; i < looplen; i++)
+															{
+																averagebuf[i] /= count;
+																Savg[i] = (uint16_t)BYTESWAP16(averagebuf[i]);
+															}
+															break;
+														case GPMF_TYPE_SIGNED_LONG:
+															looplen = sample_size / sizeof(int32_t);
+															for (i = 0; i < looplen; i++)
+															{
+																averagebuf[i] /= count;
+																lavg[i] = (int32_t)BYTESWAP32(averagebuf[i]);
+															}
+															break;
+														case GPMF_TYPE_UNSIGNED_LONG:
+															looplen = sample_size / sizeof(int32_t);
+															for (i = 0; i < looplen; i++)
+															{
+																averagebuf[i] /= count;
+																Lavg[i] = (uint32_t)BYTESWAP32(averagebuf[i]);
+															}
+															break;
+														}
+														memcpy(bptr, averagebuf, sample_size);
+														memset(averagebuf, 0, sizeof(averagebuf)), count = 0;
+													}
+													else
+													{
+														memcpy(bptr, src_bptr, sample_size);
+													}
+
+													bptr += sample_size;
+													samples_out++;
+
+												}
+
+												if (average)
 												{
 													int looplen = 0, i;
 													switch (sample_type)
 													{
 													case GPMF_TYPE_FLOAT:
+													{
+														float *src = (float *)src_bptr;
+														uint32_t *Lsrc = (uint32_t *)src_bptr;
 														looplen = sample_size / sizeof(float);
 														for (i = 0; i < looplen; i++)
 														{
-															d_averagebuf[i] /= (double)count;
-															favg[i] = (float)d_averagebuf[i];
-															Lavg[i] = BYTESWAP32(Lavg[i]);
+															Lsrc[i] = BYTESWAP32(Lsrc[i]);
+															d_averagebuf[i] += (double)src[i];
 														}
-														break;
+													}
+													break;
 													case GPMF_TYPE_SIGNED_SHORT:
+													{
+														int16_t *src = (int16_t *)src_bptr;
 														looplen = sample_size / sizeof(short);
 														for (i = 0; i < looplen; i++)
 														{
-															averagebuf[i] /= count;
-															savg[i] = (int16_t)BYTESWAP16(averagebuf[i]);
+															short val = BYTESWAP16(src[i]);
+															averagebuf[i] += (int64_t)val;
 														}
-														break;
+													}
+													break;
 													case GPMF_TYPE_UNSIGNED_SHORT:
+													{
+														uint16_t *src = (uint16_t *)src_bptr;
 														looplen = sample_size / sizeof(short);
 														for (i = 0; i < looplen; i++)
 														{
-															averagebuf[i] /= count;
-															Savg[i] = (uint16_t)BYTESWAP16(averagebuf[i]);
+															unsigned short val = BYTESWAP16(src[i]);
+															averagebuf[i] += (int64_t)val;
 														}
-														break;
+													}
+													break;
 													case GPMF_TYPE_SIGNED_LONG:
+													{
+														int32_t *src = (int32_t *)src_bptr;
 														looplen = sample_size / sizeof(int32_t);
 														for (i = 0; i < looplen; i++)
 														{
-															averagebuf[i] /= count;
-															lavg[i] = (int32_t)BYTESWAP32(averagebuf[i]);
+															int32_t val = BYTESWAP32(src[i]);
+															averagebuf[i] += (int64_t)val;
 														}
-														break;
+													}
+													break;
 													case GPMF_TYPE_UNSIGNED_LONG:
+													{
+														uint32_t *src = (uint32_t *)src_bptr;
 														looplen = sample_size / sizeof(int32_t);
 														for (i = 0; i < looplen; i++)
 														{
-															averagebuf[i] /= count;
-															Lavg[i] = (uint32_t)BYTESWAP32(averagebuf[i]);
+															uint32_t val = BYTESWAP32(src[i]);
+															averagebuf[i] += (int64_t)val;
 														}
-														break;
 													}
-													memcpy(bptr, averagebuf, sample_size);
-													memset(averagebuf, 0, sizeof(averagebuf)), count = 0;
+													break;
+													}
+													count++;
 												}
-												else
-												{
-													memcpy(bptr, src_bptr, sample_size);
-												}
-
-												bptr += sample_size;
-												samples_out++;
-
+												src_bptr += sample_size;
 											}
-
-											if (average)
-											{
-												int looplen = 0, i;
-												switch (sample_type)
-												{
-												case GPMF_TYPE_FLOAT:
-												{
-													float *src = (float *)src_bptr;
-													uint32_t *Lsrc = (uint32_t *)src_bptr;
-													looplen = sample_size / sizeof(float);
-													for (i = 0; i < looplen; i++)
-													{
-														Lsrc[i] = BYTESWAP32(Lsrc[i]);
-														d_averagebuf[i] += (double)src[i];
-													}
-												}
-												break;
-												case GPMF_TYPE_SIGNED_SHORT:
-												{
-													int16_t *src = (int16_t *)src_bptr;
-													looplen = sample_size / sizeof(short);
-													for (i = 0; i < looplen; i++)
-													{
-														short val = BYTESWAP16(src[i]);
-														averagebuf[i] += (int64_t)val;
-													}
-												}
-												break;
-												case GPMF_TYPE_UNSIGNED_SHORT:
-												{
-													uint16_t *src = (uint16_t *)src_bptr;
-													looplen = sample_size / sizeof(short);
-													for (i = 0; i < looplen; i++)
-													{
-														unsigned short val = BYTESWAP16(src[i]);
-														averagebuf[i] += (int64_t)val;
-													}
-												}
-												break;
-												case GPMF_TYPE_SIGNED_LONG:
-												{
-													int32_t *src = (int32_t *)src_bptr;
-													looplen = sample_size / sizeof(int32_t);
-													for (i = 0; i < looplen; i++)
-													{
-														int32_t val = BYTESWAP32(src[i]);
-														averagebuf[i] += (int64_t)val;
-													}
-												}
-												break;
-												case GPMF_TYPE_UNSIGNED_LONG:
-												{
-													uint32_t *src = (uint32_t *)src_bptr;
-													looplen = sample_size / sizeof(int32_t);
-													for (i = 0; i < looplen; i++)
-													{
-														uint32_t val = BYTESWAP32(src[i]);
-														averagebuf[i] += (int64_t)val;
-													}
-												}
-												break;
-												}
-												count++;
-											}
-											src_bptr += sample_size;
+											ptr[1] = GPMF_MAKE_TYPE_SIZE_COUNT(sample_type, sample_size, samples_out);
+											ptr += (8 + sample_size * samples_out + 3) >> 2;
+											devicesizebytes += (8 + sample_size * samples_out + 3) & ~3;
+											streamsizebytes += (8 + sample_size * samples_out + 3) & ~3;
 										}
-										ptr[1] = GPMF_MAKE_TYPE_SIZE_COUNT(sample_type, sample_size, samples_out);
-										ptr += (8 + sample_size * samples_out + 3) >> 2;
-										devicesizebytes += (8 + sample_size * samples_out + 3) & ~3;
-										streamsizebytes += (8 + sample_size * samples_out + 3) & ~3;
-									}
 
-									src_bptr = (uint8_t *)src_lptr;
+										src_bptr = (uint8_t *)src_lptr;
+									}
 								}
 								else
 								{
@@ -3198,6 +3243,9 @@ uint32_t GPMFWriteGetPayloadAndSession(	size_t ws_handle, uint32_t channel, uint
 								tag = src_lptr[0];
 
 							} while (GPMF_VALID_FOURCC(src_lptr[0]));
+
+							if (grouped)
+								dm->session_scale_count = 0;
 						}
 					}
 					
