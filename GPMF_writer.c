@@ -592,6 +592,7 @@ void AppendFormattedMetadata(device_metadata *dm, uint32_t *formatted, uint32_t 
 	{
 		if (dm->groupedFourCC == 0)
 		{
+#if 0 //WIP for adding '+' for Group types
 			GPMF_SampleType type = GPMF_SAMPLE_TYPE(typesize);
 			if (type != GPMF_TYPE_COMPLEX) // COMPLEX should have it own TYPE stored already, otherwise add a TYPE for GROUPED data, just-in-case GPMF_TYPE_GROUPED is used
 			{
@@ -603,6 +604,7 @@ void AppendFormattedMetadata(device_metadata *dm, uint32_t *formatted, uint32_t 
 
 				AppendFormattedMetadata(dm, buf, 12, GPMF_FLAGS_STICKY, 1, 0); // Timing is Sticky, only one value per data stream, it is simpy updated if sent more than once.	
 			}
+#endif
 			dm->groupedFourCC = tag;
 		}
 		sample_count = 1;
@@ -631,7 +633,7 @@ void AppendFormattedMetadata(device_metadata *dm, uint32_t *formatted, uint32_t 
 			AppendFormattedMetadata(dm, buf, 16, stampflags, 1, 0); // Timing is Sticky, only one value per data stream, it is simpy updated if sent more than once.	
 		}
 	}
-
+	
 again:
 	if (flags & GPMF_FLAGS_STICKY)
 	{   //sticky
@@ -3028,7 +3030,7 @@ uint32_t GPMFWriteGetPayloadAndSession(	size_t ws_handle, uint32_t channel, uint
 										uint32_t datasize = 0;
 										uint32_t groupbytes = GPMF_DATA_SIZE(src_lptr[1]);
 										uint32_t *sample_group = src_lptr;
-										if (++dm->session_scale_count <= 1)
+										if (++dm->session_scale_count <= 2)
 										{
 											if (dm->quantize)
 											{
