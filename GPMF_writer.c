@@ -3032,7 +3032,7 @@ uint32_t GPMFWriteGetPayloadAndSession(	size_t ws_handle, uint32_t channel, uint
 										uint32_t groupbytes = GPMF_DATA_SIZE(src_lptr[1]);
 										uint32_t *sample_group = src_lptr;
 
-										if (group_scale < 2) group_scale = 2; //Fixes issue with only only group FourCC looks like a non-group stream
+										if (group_scale < 2) group_scale = 2; //Fixes issue with only group FourCC looks like a non-group stream
 										if (++dm->session_scale_count <= group_scale)
 										{
 											if (dm->quantize)
