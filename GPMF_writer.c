@@ -2,7 +2,7 @@
  *
  *	@brief GPMF formatter library
  *
- *	@version 1.1.2
+ *	@version 1.2.0
  *	
  *	(C) Copyright 2017 GoPro Inc (http://gopro.com/).
  *	
