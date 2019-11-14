@@ -841,7 +841,7 @@ void PrintGPMF(GPMF_stream *ms)
 
 
 				buffersize = GPMF_FormattedDataSize(ms);
-				if (outputbuf = malloc(buffersize))
+				if ((outputbuf = malloc(buffersize)))
 				{
 					if (GPMF_OK == GPMF_FormattedData(ms, outputbuf, buffersize, 0, repeat))
 					{
