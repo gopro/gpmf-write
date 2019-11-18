@@ -2290,7 +2290,7 @@ static uint32_t CountSamplesGrouped(uint32_t *srcPayload, uint32_t *currentTotal
 		uint32_t nextTag = src_lptr[2 + sampleDatasize];
 		uint32_t *next_lptr = &src_lptr[2 + sampleDatasize];
 		
-		if(sampleDatasize == 0) 
+		if(sampleDatasize == 0 && nextTag != currentTag)
 			return 0;
 		else
 			grouped++;  //at least one grouped sample
@@ -2500,7 +2500,7 @@ uint32_t GPMFWriteGetPayloadAndSession(	size_t ws_handle, uint32_t channel, uint
 								//String name for the device
 								namelen = strlen(dm->device_name);
 								*ptr++ = GPMF_KEY_DEVICE_NAME;
-								*ptr++ = MAKEID('c', 1, 0, namelen);
+								*ptr++ = MAKEID('c', namelen, 0, 1);
 								namlen4byte = (namelen + 3) & ~3;
 								memset((char *)ptr, 0, namlen4byte);
 								memcpy((char *)ptr, dm->device_name, namelen);
@@ -3045,6 +3045,8 @@ uint32_t GPMFWriteGetPayloadAndSession(	size_t ws_handle, uint32_t channel, uint
 							do
 							{
 								uint32_t samples = GPMF_SAMPLES(src_lptr[1]);
+								if (dm->groupedFourCC && grouped) samples = grouped;
+
 								if ((samples >= (session_scale * 2) && session_scale) || GPMF_SAMPLE_TYPE(src_lptr[1]) == GPMF_TYPE_NEST || tag == last_tag) //DAN20160609 Scale data that is twice or more the the target sample rate.
 								{
 								  if (dm->groupedFourCC && grouped)
