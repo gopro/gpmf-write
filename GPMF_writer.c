@@ -585,7 +585,7 @@ void AppendFormattedMetadata(device_metadata *dm, uint32_t *formatted, uint32_t 
 
 	if(!GPMF_VALID_FOURCC(tag)) return;
 	
-	if(!(flags & GPMF_FLAGS_LOCKED))  // Use this internal flags if called within a Lock()
+	if(!(flags & GPMF_FLAGS_LOCKED))  // Use this internal flag if called within a Lock()
 		Lock(&dm->device_lock);
 
 	if (flags & GPMF_FLAGS_GROUPED)
@@ -600,7 +600,7 @@ void AppendFormattedMetadata(device_metadata *dm, uint32_t *formatted, uint32_t 
 		uint32_t swap64timestamp[2];
 		uint64_t *ptr64 = (uint64_t *)&swap64timestamp[0];
 		uint32_t buf[5];
-		uint32_t stampflags = (flags & GPMF_FLAGS_LOCKED) | GPMF_FLAGS_DONT_COUNT;
+		uint32_t stampflags = GPMF_FLAGS_LOCKED | GPMF_FLAGS_DONT_COUNT;
 
 		*ptr64 = BYTESWAP64(TimeStamp);		
 	//	TimeStamp = 0;  // with this commented out it will store both jitter removed and raw timestamps.

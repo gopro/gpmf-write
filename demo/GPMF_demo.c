@@ -90,7 +90,7 @@ int main(int argc, char *argv[])
 		uint16_t sdata[40] = { 0 }, signal = 0;
 		char txt[80];
 		uint32_t err;
-		sensorAdata Adata[10];
+//		sensorAdata Adata[10];
 
 #if ENABLE_SNR_A
 		size_t handleA = 0;
