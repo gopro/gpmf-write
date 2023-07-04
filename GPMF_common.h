@@ -4,7 +4,7 @@
  * 
  *  @version 1.2.0
  * 
- *  (C) Copyright 2017-2019 GoPro Inc (http://gopro.com/).
+ *  (C) Copyright 2017-2023 GoPro Inc (http://gopro.com/).
  *
  *  Licensed under either:
  *  - Apache License, Version 2.0, http://www.apache.org/licenses/LICENSE-2.0  
