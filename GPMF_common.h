@@ -2,9 +2,9 @@
  * 
  *  @brief GPMF Parser library include
  * 
- *  @version 1.1.1
+ *  @version 1.2.0
  * 
- *  (C) Copyright 2017 GoPro Inc (http://gopro.com/).
+ *  (C) Copyright 2017-2023 GoPro Inc (http://gopro.com/).
  *
  *  Licensed under either:
  *  - Apache License, Version 2.0, http://www.apache.org/licenses/LICENSE-2.0  
@@ -67,6 +67,8 @@ typedef enum
 
 	GPMF_TYPE_NEST = 0, // used to nest more GPMF formatted metadata 
 
+	/* ------------- Internal usage only ------------- */
+	GPMF_TYPE_EMPTY = 0xfe, // used to distinguish between grouped metadata (like FACE) with no data (no faces detected) and an empty payload (FACE device reported no samples.)
 	GPMF_TYPE_ERROR = 0xff // used to report an error
 } GPMF_SampleType;
 
@@ -91,7 +93,6 @@ typedef enum
 								( (((a>>16)&0xff)>='a'&&((a>>24)&0xff)<='z') || (((a>>16)&0xff)>='A'&&((a>>16)&0xff)<='Z') || (((a>>16)&0xff)>='0'&&((a>>16)&0xff)<='9') || (((a>>16)&0xff)==' ') ) && \
 								( (((a>>8)&0xff)>='a'&&((a>>24)&0xff)<='z') || (((a>>8)&0xff)>='A'&&((a>>8)&0xff)<='Z') || (((a>>8)&0xff)>='0'&&((a>>8)&0xff)<='9') || (((a>>8)&0xff)==' ') ) && \
 								( (((a>>0)&0xff)>='a'&&((a>>24)&0xff)<='z') || (((a>>0)&0xff)>='A'&&((a>>0)&0xff)<='Z') || (((a>>0)&0xff)>='0'&&((a>>0)&0xff)<='9') || (((a>>0)&0xff)==' ') )) 
-#define GPMF_KEY_TYPE(a)		(a&0xff)
 
 #define PRINTF_4CC(k)			((k) >> 0) & 0xff, ((k) >> 8) & 0xff, ((k) >> 16) & 0xff, ((k) >> 24) & 0xff
 
@@ -106,12 +107,16 @@ typedef enum GPMFKey // TAG in all caps are GoPro preserved (are defined by GoPr
 	GPMF_KEY_STREAM_NAME =		MAKEID('S','T','N','M'),//STNM - human readable telemetry/metadata stream type/name (char string)
 	GPMF_KEY_SI_UNITS =			MAKEID('S','I','U','N'),//SIUN - Display string for metadata units where inputs are in SI units "uT","rad/s","km/s","m/s","mm/s" etc.
 	GPMF_KEY_UNITS =			MAKEID('U','N','I','T'),//UNIT - Freedform display string for metadata units (char sting like "RPM", "MPH", "km/h", etc)
+	GPMF_KEY_MATRIX =			MAKEID('M','T','R','X'),//MTRX - 2D matrix for any sensor calibration.
+	GPMF_KEY_ORIENTATION_IN =	MAKEID('O','R','I','N'),//ORIN - input 'n' channel data orientation, lowercase is negative, e.g. "Zxy" or "ABGR".
+	GPMF_KEY_ORIENTATION_OUT =	MAKEID('O','R','I','O'),//ORIO - output 'n' channel data orientation, e.g. "XYZ" or "RGBA".
 	GPMF_KEY_SCALE =			MAKEID('S','C','A','L'),//SCAL - divisor for input data to scale to the correct units.
 	GPMF_KEY_TYPE =				MAKEID('T','Y','P','E'),//TYPE - Type define for complex data structures
 	GPMF_KEY_TOTAL_SAMPLES =	MAKEID('T','S','M','P'),//TOTL - Total Sample Count including the current payload 	
 	GPMF_KEY_TICK =				MAKEID('T','I','C','K'),//TICK - Beginning of data timing (arrival) in milliseconds. 
 	GPMF_KEY_TOCK =				MAKEID('T','O','C','K'),//TOCK - End of data timing (arrival)  in milliseconds. 
-	GPMF_KEY_TIME_OFFSET =	    MAKEID('T','I','M','O'),//TIMO - Time offset of the metadata stream that follows (single 4 byte float)
+	GPMF_KEY_TIME_OFFSET =      MAKEID('T','I','M','O'),//TIMO - Time offset of the metadata stream that follows (single 4 byte float)
+	GPMF_KEY_TIMING_OFFSET =    MAKEID('T','I','M','O'),//TIMO - duplicated, as older code might use the other version of TIMO
 	GPMF_KEY_TIME_STAMP =		MAKEID('S','T','M','P'),//STMP - Time stamp for the first sample. 
 	GPMF_KEY_TIME_STAMPS =		MAKEID('S','T','P','S'),//STPS - Stream of all the timestamps delivered (Generally don't use this. This would be if your sensor has no peroidic times, yet precision is required, or for debugging.) 
 	GPMF_KEY_PREFORMATTED =		MAKEID('P','F','R','M'),//PFRM - GPMF data
